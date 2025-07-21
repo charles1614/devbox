@@ -12,7 +12,7 @@
 # --- 配置变量 ---
 # 用户配置 (USERNAME 必须与 `scripts/prepare_online_env.sh` 中使用的用户名一致)
 # UID/GID 将由系统自动分配，并通过后续的 chown 命令修复家目录权限。
-readonly USERNAME="charles
+readonly USERNAME="charles"
 
 # 文件配置
 readonly INPUT_ARCHIVE="resources/${USERNAME}_home.tar.gz"
