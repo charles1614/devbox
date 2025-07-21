@@ -25,7 +25,7 @@ This step builds the Docker image and starts a container for manual interactive 
 ./scripts/prepare_online_env.sh [--no-cache]
 ```
 
-Follow the on-screen instructions to enter the container and complete the manual setup (e.g., running `source ~/.zshrc`).
+Follow the on-screen instructions to enter the container and complete the manual setup (e.g., running `source ~/.zshrc` and then `nvim +PlugInstall +qa`).
 
 ### 2. Package the Offline Bundle
 
