@@ -1,0 +1,10 @@
+# Minimal .gitignore
+# Ignore common build artifacts and temporary files
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
