@@ -23,7 +23,7 @@ set -e
 
 info "步骤 1: 检查容器状态"
 if [ ! "$(docker ps -q -f name=${CONTAINER_NAME})" ]; then
-    error "容器 '${CONTAINER_NAME}' 不在运行中。请先成功执行 '1_prepare_online.sh' 并完成所有手动操作。"
+    error "容器 '${CONTAINER_NAME}' 不在运行中。请先成功执行 'prepare_online_env.sh' 并完成所有手动操作。"
 fi
 success "容器状态正常。"
 

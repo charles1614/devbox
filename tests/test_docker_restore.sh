@@ -2,11 +2,11 @@
 
 # ==============================================================================
 # 脚本功能：
-#   模拟离线环境，使用基础镜像创建一个新的 Docker 容器，安装必要的
-#   APT 依赖，并从 .tar.gz 压缩包中恢复用户的家目录配置。
+#   此脚本用于在 Docker 环境中测试离线恢复流程。它会创建一个新的 Docker 容器，
+#   模拟离线环境，安装必要的 APT 依赖，并从 .tar.gz 压缩包中恢复用户的家目录配置。
 #
 # 使用方法:
-#   ./2_restore_offline.sh
+#   ./3_restore_offline.sh
 # ==============================================================================
 
 # --- 配置变量 ---
@@ -61,7 +61,7 @@ if ! command -v docker &> /dev/null; then
     error "未找到 Docker。"
 fi
 if [ ! -f "${INPUT_ARCHIVE}" ]; then
-    error "未找到 '${INPUT_ARCHIVE}'。请先成功运行 './1_prepare_online.sh' 并手动完成打包。"
+    error "未找到 '${INPUT_ARCHIVE}'。请先成功运行 './scripts/prepare_online_env.sh' 并手动完成打包。"
 fi
 success "环境检查通过。"
 

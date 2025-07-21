@@ -89,4 +89,4 @@ echo "3. 初始化完成后，输入 'exit' 退出容器:"
 echo -e "   (在容器内的 zsh 提示符后输入) ${SUCCESS}exit${NC}"
 echo
 echo "4. 完成以上所有步骤后，请执行新的打包脚本:"
-echo -e "   ${SUCCESS}./scripts/2_package_result.sh${NC}"
+echo -e "   ${SUCCESS}./scripts/package_offline_bundle.sh${NC}"
