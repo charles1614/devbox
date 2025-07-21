@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 
+#!/usr/bin/env bash
+
 # ==============================================================================
 # 脚本功能：
 #   在用户手动完成容器内的初始化后，从此容器中提取家目录，
 #   将其打包成最终的离线部署文件，并清理所有临时资源。
+#
+# 使用方法:
+#   ./package_offline_bundle.sh
 # ==============================================================================
 
 # --- 配置变量 ---
@@ -28,22 +33,22 @@ fi
 success "容器状态正常。"
 
 info "步骤 2: 从容器中提取已完全初始化的家目录"
-# 如果临时目录存在，先用 sudo 删除
+# 如果临时目录存在，先清理
 if [ -d "${TEMP_HOME_DIR}" ]; then
     info "检测到残留的临时目录，正在清理..."
-    sudo rm -rf "${TEMP_HOME_DIR}"
+    rm -rf "${TEMP_HOME_DIR}"
 fi
 docker cp "${CONTAINER_NAME}:/home/${USERNAME}" "${TEMP_HOME_DIR}"
 success "家目录已复制到 '${TEMP_HOME_DIR}'"
 
 info "步骤 3: 打包并清理"
 rm -f "${OUTPUT_ARCHIVE}"
-info "打包需要 sudo 权限..."
-sudo tar --owner=0 --group=0 -czvf "${OUTPUT_ARCHIVE}" -C "${TEMP_HOME_DIR}" .
+info "正在打包家目录..."
+tar --owner=0 --group=0 -czvf "${OUTPUT_ARCHIVE}" -C "${TEMP_HOME_DIR}" .
 success "已成功创建离线包: ${OUTPUT_ARCHIVE}"
 
-info "清理需要 sudo 权限..."
-sudo rm -rf "${TEMP_HOME_DIR}"
+info "正在清理临时文件和容器..."
+rm -rf "${TEMP_HOME_DIR}"
 docker stop ${CONTAINER_NAME} > /dev/null
 docker rm ${CONTAINER_NAME} > /dev/null
 success "临时文件和容器已清理。"

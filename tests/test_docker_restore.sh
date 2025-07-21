@@ -100,7 +100,7 @@ success "APT 依赖安装完成。"
 
 info "步骤 5: 复制并还原家目录"
 docker cp "${INPUT_ARCHIVE}" "${CONTAINER_NAME}:/tmp/"
-docker exec "${CONTAINER_NAME}" tar -xzvf "/tmp/${INPUT_ARCHIVE}" -C "/home/${USERNAME}/"
+docker exec "${CONTAINER_NAME}" tar -xzvf "/tmp/${USERNAME}_home.tar.gz" -C "/home/${USERNAME}/"
 success "家目录已解压。"
 
 info "步骤 6: 修复权限和设置默认Shell"
