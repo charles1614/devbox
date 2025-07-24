@@ -1,10 +1,39 @@
-# Minimal .gitignore
+# Devbox .gitignore
 # Ignore common build artifacts and temporary files
+
+# Logs and temporary files
 *.log
 *.tmp
 *.bak
 *.swp
 *.swo
 *~
+
+# OS generated files
 .DS_Store
 Thumbs.db
+
+# Docker artifacts
+Dockerfile.restore
+*.tar.gz
+!resources/*.tar.gz
+
+# Temporary directories
+*_home_temp/
+*_temp/
+
+# Downloaded setup scripts
+original_setup.sh
+
+# Configuration overrides (allow config.env.example)
+config.env
+!config.env.example
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-*
+
+# Backup files
+*.backup
+*.old
