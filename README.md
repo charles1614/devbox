@@ -5,7 +5,7 @@ This project provides a set of scripts to create a consistent, portable, and off
 ## Project Structure
 
 - `docker/`: Contains the optimized `Dockerfile` with multi-stage builds for better performance.
-- `resources/`: Stores necessary resources, such as the archived home directory (`charles_home.tar.gz`).
+- `resources/`: Directory for storing generated resources, such as the archived home directory (`charles_home.tar.gz`) that will be created during the packaging process.
 - `scripts/`: Contains the core shell scripts for managing the environment lifecycle.
   - `common.sh`: Shared utilities and configuration management.
   - `prepare_online_env.sh`: Builds the Docker image, sets up the environment, and prepares for manual initialization.
@@ -42,7 +42,7 @@ Follow the on-screen instructions to enter the container and complete the manual
 make package
 ```
 
-This will create `resources/charles_home.tar.gz`, which is your portable development environment.
+This will create `resources/charles_home.tar.gz`, which is your portable development environment. This file will be tracked by Git LFS due to its size.
 
 ### 4. Restore the Environment on Ubuntu
 

@@ -34,8 +34,7 @@ log_success "环境检查通过。"
 
 log_info "步骤 2: 创建纯净的"离线"Docker环境"
 cat <<EOF > "${DOCKERFILE_RESTORE}"
-ARG TARGETPLATFORM
-FROM --platform=\${TARGETPLATFORM:-linux/amd64} ${DOCKER_BASE_IMAGE}
+FROM --platform=linux/amd64 ${DOCKER_BASE_IMAGE}
 ENV DEBIAN_FRONTEND=noninteractive
 # Pre-install ca-certificates and sudo
 RUN apt-get update && apt-get install -y ca-certificates sudo
@@ -44,7 +43,7 @@ RUN groupadd -g ${GROUP_ID} ${USERNAME} && \\
     echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 EOF
 
-if ! docker build --platform linux/amd64 --no-cache --build-arg TARGETPLATFORM=linux/amd64 -f "${DOCKERFILE_RESTORE}" -t "${BASE_IMAGE_NAME}" .; then
+if ! docker build --platform linux/amd64 --no-cache -f "${DOCKERFILE_RESTORE}" -t "${BASE_IMAGE_NAME}" .; then
     error_exit "构建基础镜像失败"
 fi
 log_success "纯净的 '${BASE_IMAGE_NAME}' 镜像已创建。"

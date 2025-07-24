@@ -48,7 +48,6 @@ log_success "'${LOCAL_SETUP_SCRIPT}' 已下载。"
 
 log_info "步骤 3: 构建"半成品"镜像 (这可能需要较长时间)"
 if ! docker build --platform linux/amd64 ${DOCKER_BUILD_OPTIONS} \
-    --build-arg TARGETPLATFORM=linux/amd64 \
     --build-arg USERNAME=${USERNAME} \
     --build-arg USER_ID=${USER_ID} \
     --build-arg GROUP_ID=${GROUP_ID} \
