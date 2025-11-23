@@ -18,7 +18,7 @@ readonly INPUT_ARCHIVE="${RESOURCES_DIR}/${HOME_ARCHIVE_NAME}"
 
 # --- Main logic ---
 log_info "步骤 1: 环境检查"
-validate_sudo
+# validate_sudo
 validate_file_exists "${INPUT_ARCHIVE}" "离线包"
 log_success "环境检查通过。"
 

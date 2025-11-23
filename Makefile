@@ -46,7 +46,7 @@ package:
 # Restore environment (requires sudo)
 restore:
 	@echo "🔄 Restoring environment..."
-	@sudo ./scripts/restore_ubuntu_env.sh
+	@./scripts/restore_ubuntu_env.sh
 
 # Test Docker restoration
 test:
