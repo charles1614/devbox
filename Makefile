@@ -12,6 +12,7 @@ help:
 	@echo "Available targets:"
 	@echo "  setup     - Initial setup (copy config.env.example to config.env)"
 	@echo "  prepare   - Prepare online environment for manual initialization"
+	@echo "             Use NO_CACHE=1 to build without cache: make prepare NO_CACHE=1"
 	@echo "  package   - Package the initialized environment into offline bundle"
 	@echo "  restore   - Restore environment on Ubuntu system (requires sudo)"
 	@echo "  test      - Test Docker restoration process"
@@ -21,6 +22,7 @@ help:
 	@echo "Usage examples:"
 	@echo "  make setup"
 	@echo "  make prepare"
+	@echo "  make prepare NO_CACHE=1"
 	@echo "  sudo make restore"
 	@echo "  make test"
 
@@ -34,9 +36,14 @@ setup:
 	fi
 
 # Prepare online environment
+# Usage: make prepare [NO_CACHE=1] to build without cache
 prepare:
 	@echo "🚀 Preparing online environment..."
-	@./scripts/prepare_online_env.sh
+	@if [ "$(NO_CACHE)" = "1" ]; then \
+		./scripts/prepare_online_env.sh --no-cache; \
+	else \
+		./scripts/prepare_online_env.sh; \
+	fi
 
 # Package offline bundle
 package:

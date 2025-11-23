@@ -4,7 +4,7 @@
 # ==============================================================================
 
 # Build stage for dependencies
-FROM --platform=linux/amd64 ubuntu:22.04 AS base
+FROM ubuntu:22.04 AS base
 
 # Set environment variables to avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
