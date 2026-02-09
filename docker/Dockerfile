@@ -20,6 +20,8 @@ RUN apt-get update && \
         sed \
         ca-certificates \
         wget \
+        cmake \
+        ninja-build \
         && \
     ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
     echo $TZ > /etc/timezone && \
