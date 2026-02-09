@@ -23,6 +23,13 @@ docker run -it ghcr.io/charles1614/devbox:extra-latest
 
 All tools, shell plugins (zinit), and neovim plugins (lazy.nvim) are pre-installed during the image build. No manual initialization is needed.
 
+## Download Offline Bundle
+
+Pre-built home directory archives are available on the [Releases](https://github.com/charles1614/devbox/releases) page:
+
+- `charles_home_mini.tar.gz` — mini profile
+- `charles_home_extra.tar.gz` — extra profile
+
 ## Build Locally
 
 If you prefer to build the image yourself instead of pulling from GHCR:
@@ -36,40 +43,39 @@ cd devbox
 make setup
 # Edit config.env with your settings
 
-# Build and start container for manual initialization
-make prepare
-# Use NO_CACHE=1 for a clean rebuild: make prepare NO_CACHE=1
+# Build and start container
+make prepare PROFILE=extra
+# Use NO_CACHE=1 for a clean rebuild: make prepare PROFILE=extra NO_CACHE=1
 ```
 
-This will build a Docker image and start a container. Follow the on-screen instructions to complete manual setup, then:
+This will build a Docker image and start a container. Then package the environment:
 
 ```bash
 # Package into offline bundle
-make package
-
-# Commit (Git LFS handles large files automatically)
-git add .
-git commit -m "Add portable development environment bundle"
-git push
+make package FILE=charles_home_extra.tar.gz
 ```
 
 ## Restore
 
+Download the archive from [Releases](https://github.com/charles1614/devbox/releases), then:
+
 **On Ubuntu system:**
 ```bash
-sudo make restore
+sudo make restore FILE=charles_home_extra.tar.gz
+# or
+sudo make restore FILE=charles_home_mini.tar.gz
 ```
 
 **Test in Docker:**
 ```bash
-make test
+make test FILE=charles_home_extra.tar.gz
 ```
 
 ## Project Structure
 
 ```
 devbox/
-├── .github/workflows/  CI/CD (build & publish to GHCR)
+├── .github/workflows/  CI/CD (build, publish to GHCR, release archives)
 ├── docker/             Dockerfile
 ├── scripts/
 │   ├── common.sh                 Shared utilities and configuration
@@ -77,7 +83,6 @@ devbox/
 │   ├── prepare_online_env.sh     Prepare online environment
 │   ├── package_offline_bundle.sh Package into offline bundle
 │   └── restore_ubuntu_env.sh     Restore on Ubuntu system
-├── resources/          Generated tar.gz bundles (Git LFS)
 ├── tests/              Docker restoration tests
 ├── config.env.example  Configuration template
 └── Makefile            All commands
@@ -102,14 +107,13 @@ cp config.env.example config.env
 | Command | Description |
 |---------|-------------|
 | `make setup` | Create `config.env` from example |
-| `make prepare` | Build image and start container for manual init |
-| `make package` | Package initialized environment into offline bundle |
-| `make restore` | Restore environment on Ubuntu system (requires sudo) |
-| `make test` | Test Docker restoration |
+| `make prepare PROFILE=<mini\|extra>` | Build image and start container |
+| `make package FILE=<output.tar.gz>` | Package initialized environment into offline bundle |
+| `make restore FILE=<archive.tar.gz>` | Restore environment on Ubuntu system (requires sudo) |
+| `make test FILE=<archive.tar.gz>` | Test Docker restoration |
 | `make clean` | Clean up containers, images, and temp files |
 | `make workflow` | Run setup + prepare in sequence |
 
 ## Prerequisites
 
 - **Docker** — for building, testing, and running environments
-- **Git LFS** — for handling large tar.gz files (already configured via `.gitattributes`)

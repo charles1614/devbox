@@ -13,11 +13,16 @@ source "${SCRIPT_DIR}/../scripts/common.sh"
 # --- Configuration ---
 setup_environment
 
+# File configuration — ARCHIVE_FILE must be provided
+if [[ -z "${ARCHIVE_FILE}" ]]; then
+    error_exit "请指定归档文件路径。用法: ARCHIVE_FILE=charles_home_extra.tar.gz $0"
+fi
+
 # Docker configuration
 readonly DOCKERFILE_RESTORE="Dockerfile.restore"
 readonly BASE_IMAGE_NAME="offline-machine-base:${USERNAME}"
 readonly CONTAINER_NAME="test_offline_${USERNAME}"
-readonly INPUT_ARCHIVE="${RESOURCES_DIR}/${HOME_ARCHIVE_NAME}"
+readonly INPUT_ARCHIVE="${ARCHIVE_FILE}"
 
 # --- Cleanup function ---
 cleanup() {
@@ -61,11 +66,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the restore script and resources
+# Copy the restore script and archive
 COPY scripts/restore_ubuntu_env.sh /workspace/restore_ubuntu_env.sh
 COPY scripts/common.sh /workspace/common.sh
-COPY resources/ /workspace/resources/
-COPY config.env /workspace/config.env
+COPY ${INPUT_ARCHIVE} /workspace/archive.tar.gz
 
 # Set working directory
 WORKDIR /workspace
@@ -85,7 +89,7 @@ RUN echo '#!/bin/bash' > /workspace/test_restore.sh && \
     echo '  echo "User ${USERNAME} already exists"' >> /workspace/test_restore.sh && \
     echo 'fi' >> /workspace/test_restore.sh && \
     echo 'echo "Testing home directory extraction..."' >> /workspace/test_restore.sh && \
-    echo 'tar -xzvf "/workspace/resources/${HOME_ARCHIVE_NAME}" -C "/home/${USERNAME}/" --strip-components=1' >> /workspace/test_restore.sh && \
+    echo 'tar -xzvf "/workspace/archive.tar.gz" -C "/home/${USERNAME}/" --strip-components=1' >> /workspace/test_restore.sh && \
     echo 'chown -R "${USERNAME}:${USERNAME}" "/home/${USERNAME}"' >> /workspace/test_restore.sh && \
     echo 'echo "Home directory extracted successfully"' >> /workspace/test_restore.sh && \
     echo 'echo "Setting default shell to zsh..."' >> /workspace/test_restore.sh && \

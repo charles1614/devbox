@@ -106,9 +106,8 @@ setup_environment() {
     export GROUP_ID="${GROUP_ID:-$DEFAULT_GROUP_ID}"
     export SETUP_SCRIPT_URL="${SETUP_SCRIPT_URL:-$DEFAULT_SETUP_SCRIPT_URL}"
     export APT_PACKAGES="${APT_PACKAGES:-build-essential git curl unzip jq libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev libncurses5-dev libffi-dev zsh bat ripgrep fd-find}"
-    export RESOURCES_DIR="${RESOURCES_DIR:-resources}"
     export SCRIPTS_DIR="${SCRIPTS_DIR:-scripts}"
     export TESTS_DIR="${TESTS_DIR:-tests}"
     export DOCKER_DIR="${DOCKER_DIR:-docker}"
-    export HOME_ARCHIVE_NAME="${HOME_ARCHIVE_NAME:-${USERNAME}_home.tar.gz}"
+    export ARCHIVE_FILE="${ARCHIVE_FILE:-}"
 } 

@@ -16,7 +16,7 @@ setup_environment
 # Container and file configuration
 readonly CONTAINER_NAME="manual_init_container_${USERNAME}"
 readonly TEMP_HOME_DIR="./${USERNAME}_home_temp"
-readonly OUTPUT_ARCHIVE="${RESOURCES_DIR}/${HOME_ARCHIVE_NAME}"
+readonly OUTPUT_ARCHIVE="${ARCHIVE_FILE:-${USERNAME}_home.tar.gz}"
 
 # --- Main logic ---
 log_info "步骤 1: 检查容器状态"
@@ -36,9 +36,6 @@ fi
 log_success "家目录已复制到 '${TEMP_HOME_DIR}'"
 
 log_info "步骤 3: 打包并清理"
-# Ensure resources directory exists
-mkdir -p "${RESOURCES_DIR}"
-
 # Remove existing archive
 safe_remove "${OUTPUT_ARCHIVE}"
 

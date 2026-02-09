@@ -3,6 +3,9 @@
 # Provides convenient shortcuts for common operations
 # ==============================================================================
 
+# Build profile for Docker image (mini or extra)
+PROFILE ?= extra
+
 .PHONY: help prepare package restore test clean setup
 
 # Default target
@@ -11,20 +14,24 @@ help:
 	@echo ""
 	@echo "Available targets:"
 	@echo "  setup     - Initial setup (copy config.env.example to config.env)"
-	@echo "  prepare   - Prepare online environment for manual initialization"
+	@echo "  prepare   - Prepare online environment (PROFILE=mini|extra)"
 	@echo "             Use NO_CACHE=1 to build without cache: make prepare NO_CACHE=1"
 	@echo "  package   - Package the initialized environment into offline bundle"
+	@echo "             Output: FILE=charles_home.tar.gz (default)"
 	@echo "  restore   - Restore environment on Ubuntu system (requires sudo)"
+	@echo "             Requires: FILE=<path-to-tar.gz>"
 	@echo "  test      - Test Docker restoration process"
+	@echo "             Requires: FILE=<path-to-tar.gz>"
 	@echo "  clean     - Clean up temporary files and containers"
 	@echo "  help      - Show this help message"
 	@echo ""
 	@echo "Usage examples:"
 	@echo "  make setup"
-	@echo "  make prepare"
-	@echo "  make prepare NO_CACHE=1"
-	@echo "  sudo make restore"
-	@echo "  make test"
+	@echo "  make prepare PROFILE=extra"
+	@echo "  make prepare PROFILE=mini NO_CACHE=1"
+	@echo "  make package FILE=charles_home_extra.tar.gz"
+	@echo "  sudo make restore FILE=charles_home_extra.tar.gz"
+	@echo "  make test FILE=charles_home_extra.tar.gz"
 
 # Initial setup
 setup:
@@ -36,29 +43,40 @@ setup:
 	fi
 
 # Prepare online environment
-# Usage: make prepare [NO_CACHE=1] to build without cache
+# Usage: make prepare [PROFILE=mini|extra] [NO_CACHE=1]
 prepare:
-	@echo "🚀 Preparing online environment..."
+	@echo "🚀 Preparing online environment (profile: $(PROFILE))..."
 	@if [ "$(NO_CACHE)" = "1" ]; then \
-		./scripts/prepare_online_env.sh --no-cache; \
+		PROFILE=$(PROFILE) ./scripts/prepare_online_env.sh --no-cache; \
 	else \
-		./scripts/prepare_online_env.sh; \
+		PROFILE=$(PROFILE) ./scripts/prepare_online_env.sh; \
 	fi
 
 # Package offline bundle
+# Usage: make package [FILE=output.tar.gz]
 package:
 	@echo "📦 Packaging offline bundle..."
-	@./scripts/package_offline_bundle.sh
+	@ARCHIVE_FILE=$(FILE) ./scripts/package_offline_bundle.sh
 
 # Restore environment (requires sudo)
+# Usage: sudo make restore FILE=charles_home_extra.tar.gz
 restore:
-	@echo "🔄 Restoring environment..."
-	@./scripts/restore_ubuntu_env.sh
+	@if [ -z "$(FILE)" ]; then \
+		echo "❌ FILE is required. Usage: sudo make restore FILE=charles_home_extra.tar.gz"; \
+		exit 1; \
+	fi
+	@echo "🔄 Restoring from $(FILE)..."
+	@ARCHIVE_FILE=$(FILE) ./scripts/restore_ubuntu_env.sh
 
 # Test Docker restoration
+# Usage: make test FILE=charles_home_extra.tar.gz
 test:
-	@echo "🧪 Testing Docker restoration..."
-	@./tests/test_docker_restore.sh
+	@if [ -z "$(FILE)" ]; then \
+		echo "❌ FILE is required. Usage: make test FILE=charles_home_extra.tar.gz"; \
+		exit 1; \
+	fi
+	@echo "🧪 Testing restoration from $(FILE)..."
+	@ARCHIVE_FILE=$(FILE) ./tests/test_docker_restore.sh
 
 # Clean up
 clean:
@@ -79,6 +97,5 @@ workflow: setup prepare
 	@echo ""
 	@echo "🎉 Environment preparation started!"
 	@echo "Next steps:"
-	@echo "1. Follow the instructions to manually initialize the container"
-	@echo "2. Run 'make package' to create the offline bundle"
-	@echo "3. Run 'sudo make restore' to restore on target system" 
+	@echo "1. Run 'make package' to create the offline bundle"
+	@echo "2. Run 'sudo make restore FILE=<archive>' to restore on target system"

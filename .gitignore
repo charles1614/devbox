@@ -16,7 +16,6 @@ Thumbs.db
 # Docker artifacts
 Dockerfile.restore
 *.tar.gz
-!resources/*.tar.gz
 
 # Temporary directories
 *_home_temp/

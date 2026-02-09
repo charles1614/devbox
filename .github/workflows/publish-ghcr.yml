@@ -93,8 +93,52 @@ jobs:
           docker rm "$CONTAINER_NAME"
           rm -rf charles_home_temp
 
-      - name: Upload home directory archive
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: charles_home_${{ matrix.profile }}
           path: charles_home_${{ matrix.profile }}.tar.gz
+
+  release:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate release tag
+        id: tag
+        run: |
+          TAG="build-$(date -u +'%Y%m%d')-${GITHUB_SHA::7}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Release tag: $TAG"
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "Devbox ${{ steps.tag.outputs.tag }}"
+          body: |
+            Automated build from [`${{ github.sha }}`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
+
+            ## Download
+            | Profile | Archive |
+            |---------|---------|
+            | **mini** | `charles_home_mini.tar.gz` |
+            | **extra** | `charles_home_extra.tar.gz` |
+
+            ## Restore
+            ```bash
+            sudo make restore PROFILE=mini
+            # or
+            sudo make restore PROFILE=extra
+            ```
+          files: |
+            artifacts/charles_home_mini/charles_home_mini.tar.gz
+            artifacts/charles_home_extra/charles_home_extra.tar.gz

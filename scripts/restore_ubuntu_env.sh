@@ -13,14 +13,17 @@ source "${SCRIPT_DIR}/common.sh"
 # --- Configuration ---
 setup_environment
 
-# File configuration
-readonly INPUT_ARCHIVE="${RESOURCES_DIR}/${HOME_ARCHIVE_NAME}"
+# File configuration — ARCHIVE_FILE must be provided
+if [[ -z "${ARCHIVE_FILE}" ]]; then
+    error_exit "请指定归档文件路径。用法: ARCHIVE_FILE=charles_home_extra.tar.gz $0"
+fi
+readonly INPUT_ARCHIVE="${ARCHIVE_FILE}"
 
 # --- Main logic ---
 log_info "步骤 1: 环境检查"
 # validate_sudo
 validate_file_exists "${INPUT_ARCHIVE}" "离线包"
-log_success "环境检查通过。"
+log_success "环境检查通过。归档文件: ${INPUT_ARCHIVE}"
 
 log_info "步骤 2: 检查并创建用户和组"
 # Create group if it doesn't exist
