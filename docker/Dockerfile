@@ -35,6 +35,7 @@ ARG USERNAME
 ARG USER_ID
 ARG GROUP_ID
 ARG LOCAL_SETUP_SCRIPT
+ARG PROFILE=extra
 
 # Create user and group
 RUN groupadd -g ${GROUP_ID} ${USERNAME} && \
@@ -50,7 +51,7 @@ USER ${USERNAME}
 WORKDIR /home/${USERNAME}
 
 # Install development tools and configurations
-RUN bash -l -c "/usr/local/bin/run.sh --profile extra --set-zsh-default --chezmoi https://github.com/charles1614/dotfiles.git"
+RUN bash -l -c "/usr/local/bin/run.sh --profile ${PROFILE} --set-zsh-default --chezmoi https://github.com/charles1614/dotfiles.git"
 
 # Final stage - set default shell
 USER root
