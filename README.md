@@ -1,76 +1,78 @@
 # Devbox: Portable Development Environment
 
-A comprehensive solution for creating, packaging, and restoring portable development environments. This project allows you to prepare a customized environment online, package it into an offline bundle, and restore it on any Ubuntu system or Docker container.
+A solution for creating, packaging, and restoring portable development environments. Prepare a customized environment online, package it into an offline bundle, and restore it on any Ubuntu system or Docker container.
 
-## Features
+## Quick Start from GHCR
 
-- 🚀 **Online Environment Preparation**: Set up your development environment with all tools and configurations
-- 📦 **Offline Packaging**: Create portable tar.gz bundles that can be shared and restored anywhere
-- 🔄 **Easy Restoration**: One-command restoration on Ubuntu systems or Docker containers
-- 🧪 **Testing Support**: Built-in Docker testing to verify restoration works correctly
-- 🔧 **Git LFS Integration**: Automatic handling of large tar.gz files with Git Large File Storage
+Pre-built images are published to GHCR automatically on every push to `main`. Two profiles are available:
 
-## Quick Start
-
-### 1. Initial Setup
+| Profile | Tools |
+|---------|-------|
+| **mini** | python, chezmoi, neovim, uv, zellij, fzf, zoxide |
+| **extra** | everything in mini + rust, eza, lazygit, ctop, dust, nodejs, golang, clang |
 
 ```bash
-# Clone the repository
-git clone <your-repo-url>
-cd devbox
+# Pull the image
+docker pull ghcr.io/charles1614/devbox:mini-latest
+# or
+docker pull ghcr.io/charles1614/devbox:extra-latest
 
-# Set up configuration
-make setup
-# Edit config.env with your settings
+# Run interactive shell
+docker run -it ghcr.io/charles1614/devbox:extra-latest
 ```
 
-### 2. Prepare Online Environment
+### Continue Setup Inside the Container
+
+The GHCR image comes with all tools pre-installed but needs a few manual steps to finalize:
 
 ```bash
-make prepare
-```
-
-This will:
-- Build a Docker container with your development environment
-- Start the container for manual initialization
-- Follow the on-screen instructions to complete setup
-
-**Manual Setup Steps:**
-```bash
-# Enter the container (instructions will be shown)
-docker exec -it manual_init_container_charles /bin/bash
-
-# Complete your environment setup
+# Initialize shell configuration
 source ~/.zshrc
+
+# Install Neovim plugins
 nvim +PlugInstall +qa
-# ... any other setup steps
+
+# Any other personal setup steps...
 
 # Exit when done
 exit
 ```
 
-### 3. Package Offline Bundle
+To package the initialized environment into an offline bundle afterwards, keep the container running and run `make package` from the host.
+
+## Build Locally
+
+If you prefer to build the image yourself instead of pulling from GHCR:
 
 ```bash
-make package
+# Clone the repository
+git clone git@github.com:charles1614/devbox.git
+cd devbox
+
+# Set up configuration
+make setup
+# Edit config.env with your settings
+
+# Build and start container for manual initialization
+make prepare
+# Use NO_CACHE=1 for a clean rebuild: make prepare NO_CACHE=1
 ```
 
-This creates `resources/charles_home.tar.gz` - your portable development environment.
-
-### 4. Commit and Push
+This will build a Docker image and start a container. Follow the on-screen instructions to complete manual setup, then:
 
 ```bash
-# Add and commit changes (Git LFS handles large files automatically)
+# Package into offline bundle
+make package
+
+# Commit (Git LFS handles large files automatically)
 git add .
 git commit -m "Add portable development environment bundle"
 git push
 ```
 
-**Note**: The `.gitattributes` file is already configured for Git LFS, so `git push` will automatically handle the large tar.gz files.
+## Restore
 
-### 5. Restore Environment
-
-**On Ubuntu System:**
+**On Ubuntu system:**
 ```bash
 sudo make restore
 ```
@@ -78,73 +80,52 @@ sudo make restore
 **Test in Docker:**
 ```bash
 make test
-# Follow instructions to verify the restored environment
 ```
 
 ## Project Structure
 
 ```
 devbox/
-├── docker/              # Docker configuration files
-├── resources/           # Generated resources (tar.gz files tracked by Git LFS)
-├── scripts/            # Core shell scripts
-│   ├── common.sh       # Shared utilities and configuration
-│   ├── prepare_online_env.sh    # Prepare online environment
-│   ├── package_offline_bundle.sh # Package into offline bundle
-│   └── restore_ubuntu_env.sh    # Restore on Ubuntu system
-├── tests/              # Testing scripts
-│   └── test_docker_restore.sh   # Docker restoration testing
-├── config.env.example  # Configuration template
-├── Makefile           # Convenient shortcuts
-└── README.md          # This documentation
+├── .github/workflows/  CI/CD (build & publish to GHCR)
+├── docker/             Dockerfile
+├── scripts/
+│   ├── common.sh                 Shared utilities and configuration
+│   ├── prepare_online_env.sh     Prepare online environment
+│   ├── package_offline_bundle.sh Package into offline bundle
+│   └── restore_ubuntu_env.sh     Restore on Ubuntu system
+├── resources/          Generated tar.gz bundles (Git LFS)
+├── tests/              Docker restoration tests
+├── config.env.example  Configuration template
+└── Makefile            All commands
 ```
 
 ## Configuration
 
-Copy and customize the configuration:
-
 ```bash
 cp config.env.example config.env
-# Edit config.env with your settings
 ```
 
-### Key Configuration Options
-
-```bash
-# User configuration
-USERNAME="your_username"
-USER_ID=1000
-GROUP_ID=1000
-
-# Setup script (optional)
-SETUP_SCRIPT_URL="https://raw.githubusercontent.com/your-username/dotfiles/main/setup.sh"
-
-# Docker configuration
-DOCKER_BASE_IMAGE="ubuntu:22.04"
-
-# APT packages to install
-APT_PACKAGES="build-essential git curl unzip jq libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev libncurses5-dev libffi-dev zsh bat ripgrep fd-find"
-```
+| Option | Description |
+|--------|-------------|
+| `USERNAME` | Username for the environment |
+| `USER_ID` / `GROUP_ID` | UID/GID for the user |
+| `SETUP_SCRIPT_URL` | URL to your dotfiles setup script |
+| `DOCKER_BASE_IMAGE` | Base Docker image (default: `ubuntu:22.04`) |
+| `APT_PACKAGES` | Space-separated list of APT packages to install |
 
 ## Workflow Commands
 
-```bash
-# Full workflow (setup + prepare)
-make workflow
-
-# Clean up everything
-make clean
-
-# Show help
-make help
-```
+| Command | Description |
+|---------|-------------|
+| `make setup` | Create `config.env` from example |
+| `make prepare` | Build image and start container for manual init |
+| `make package` | Package initialized environment into offline bundle |
+| `make restore` | Restore environment on Ubuntu system (requires sudo) |
+| `make test` | Test Docker restoration |
+| `make clean` | Clean up containers, images, and temp files |
+| `make workflow` | Run setup + prepare in sequence |
 
 ## Prerequisites
 
-- **Docker**: For environment preparation and testing
-- **Git LFS**: For handling large tar.gz files (already configured)
-- **Ubuntu 22.04+**: For restoration (or Docker for testing)
-
-## License
-
-This project is open source. Please check the license file for details.
+- **Docker** — for building, testing, and running environments
+- **Git LFS** — for handling large tar.gz files (already configured via `.gitattributes`)
