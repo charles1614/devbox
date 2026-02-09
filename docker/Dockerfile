@@ -20,6 +20,7 @@ RUN apt-get update && \
         sed \
         ca-certificates \
         wget \
+        jq \
         cmake \
         ninja-build \
         && \
