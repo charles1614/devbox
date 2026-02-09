@@ -39,21 +39,39 @@ install_zsh_plugins() {
         return
     fi
 
-    # Source .zshrc in a non-interactive zsh subshell.
-    # - Powerlevel10k instant prompt cache won't exist on first run, so that
-    #   block is harmlessly skipped.
-    # - compinit is guarded by an interactive-shell check in the zshrc, so it
-    #   is also skipped (fine — we only need plugin downloads here).
-    # - zinit light/snippet commands clone plugins from GitHub on first source.
-    # - TERM is set so terminfo-based bindkey calls don't produce empty keys.
-    if zsh -c 'source ~/.zshrc' 2>&1; then
+    # Source .zshrc in an interactive zsh subshell via stdin (zsh -is).
+    # Using -i ensures zinit treats this as an interactive session and fully
+    # installs all plugins. Without -i, zinit may skip or defer downloads.
+    # TERM is set (in Environment section above) so bindkey calls work.
+    log_info "Sourcing .zshrc in interactive subshell..."
+    if zsh -is <<'ZSH_EOF' 2>&1
+source ~/.zshrc
+ZSH_EOF
+    then
         log_success "Zsh plugins sourced successfully"
     else
         log_warning "zsh source had non-zero exit (may be non-critical)"
         ((WARNINGS++))
     fi
 
-    # Verify zinit plugins were actually downloaded
+    # --- Pre-install gitstatusd (powerlevel10k dependency) ---
+    # Powerlevel10k only fetches gitstatusd on first interactive prompt render,
+    # which doesn't happen during build. Run the bundled install script directly.
+    local p10k_dir="$HOME/.local/share/zinit/plugins/romkatv---powerlevel10k"
+    if [[ -x "$p10k_dir/gitstatus/install" ]]; then
+        log_info "Pre-installing gitstatusd binary..."
+        if "$p10k_dir/gitstatus/install" -f 2>&1; then
+            log_success "gitstatusd installed"
+        else
+            log_warning "gitstatusd install had issues (will auto-install on first use)"
+            ((WARNINGS++))
+        fi
+    else
+        log_warning "Powerlevel10k gitstatus/install not found — gitstatusd will auto-install on first use"
+        ((WARNINGS++))
+    fi
+
+    # --- Verify zinit plugins ---
     local plugin_dir="$HOME/.local/share/zinit/plugins"
     if [[ -d "$plugin_dir" ]]; then
         local count
@@ -66,6 +84,16 @@ install_zsh_plugins() {
     else
         log_warning "Zinit plugin directory not found at ${plugin_dir}"
         ((WARNINGS++))
+    fi
+
+    # --- Verify gitstatusd binary ---
+    local cache_dir="${GITSTATUS_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/gitstatus}"
+    local gitstatusd_bin
+    gitstatusd_bin=$(find "$cache_dir" -name 'gitstatusd-*' -type f 2>/dev/null | head -1)
+    if [[ -n "$gitstatusd_bin" ]]; then
+        log_success "gitstatusd binary cached at: $gitstatusd_bin"
+    else
+        log_warning "gitstatusd binary not found in $cache_dir"
     fi
 }
 
