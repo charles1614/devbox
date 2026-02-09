@@ -17,28 +17,11 @@ docker pull ghcr.io/charles1614/devbox:mini-latest
 # or
 docker pull ghcr.io/charles1614/devbox:extra-latest
 
-# Run interactive shell
+# Run interactive shell (ready to use immediately)
 docker run -it ghcr.io/charles1614/devbox:extra-latest
 ```
 
-### Continue Setup Inside the Container
-
-The GHCR image comes with all tools pre-installed but needs a few manual steps to finalize:
-
-```bash
-# Initialize shell configuration
-source ~/.zshrc
-
-# Install Neovim plugins
-nvim +PlugInstall +qa
-
-# Any other personal setup steps...
-
-# Exit when done
-exit
-```
-
-To package the initialized environment into an offline bundle afterwards, keep the container running and run `make package` from the host.
+All tools, shell plugins (zinit), and neovim plugins (lazy.nvim) are pre-installed during the image build. No manual initialization is needed.
 
 ## Build Locally
 
@@ -90,6 +73,7 @@ devbox/
 ├── docker/             Dockerfile
 ├── scripts/
 │   ├── common.sh                 Shared utilities and configuration
+│   ├── init_plugins.sh           Auto-install zsh/neovim plugins during build
 │   ├── prepare_online_env.sh     Prepare online environment
 │   ├── package_offline_bundle.sh Package into offline bundle
 │   └── restore_ubuntu_env.sh     Restore on Ubuntu system

@@ -67,3 +67,34 @@ jobs:
             PROFILE=${{ matrix.profile }}
           cache-from: type=gha,scope=${{ matrix.profile }}
           cache-to: type=gha,mode=max,scope=${{ matrix.profile }}
+
+      - name: Package home directory
+        run: |
+          IMAGE="${REGISTRY}/${IMAGE_NAME}:${{ matrix.profile }}-latest"
+          CONTAINER_NAME="package_${{ matrix.profile }}"
+
+          # Pull the just-pushed image
+          docker pull "$IMAGE"
+
+          # Run container in background
+          docker run -d --name "$CONTAINER_NAME" "$IMAGE" tail -f /dev/null
+
+          # Extract home directory
+          docker cp "$CONTAINER_NAME:/home/charles" ./charles_home_temp
+
+          # Package into tar.gz
+          tar --owner=0 --group=0 -czf "charles_home_${{ matrix.profile }}.tar.gz" -C charles_home_temp .
+
+          # Show archive size
+          ls -lh "charles_home_${{ matrix.profile }}.tar.gz"
+
+          # Cleanup
+          docker stop "$CONTAINER_NAME"
+          docker rm "$CONTAINER_NAME"
+          rm -rf charles_home_temp
+
+      - name: Upload home directory archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: charles_home_${{ matrix.profile }}
+          path: charles_home_${{ matrix.profile }}.tar.gz

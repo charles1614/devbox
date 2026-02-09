@@ -43,9 +43,10 @@ RUN groupadd -g ${GROUP_ID} ${USERNAME} && \
     useradd -m -s /bin/bash -u ${USER_ID} -g ${GROUP_ID} ${USERNAME} && \
     echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-# Copy setup script
+# Copy setup scripts
 COPY ${LOCAL_SETUP_SCRIPT} /usr/local/bin/run.sh
-RUN chmod +x /usr/local/bin/run.sh
+COPY scripts/init_plugins.sh /usr/local/bin/init_plugins.sh
+RUN chmod +x /usr/local/bin/run.sh /usr/local/bin/init_plugins.sh
 
 # Switch to user context
 USER ${USERNAME}
@@ -60,6 +61,9 @@ RUN chsh -s /bin/zsh ${USERNAME}
 
 # Switch back to user
 USER ${USERNAME}
+
+# Auto-install zsh (zinit) and neovim (lazy.nvim) plugins
+RUN /usr/local/bin/init_plugins.sh
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

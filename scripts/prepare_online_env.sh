@@ -67,19 +67,11 @@ fi
 log_success "容器 '${CONTAINER_NAME}' 已在后台启动。"
 
 # --- User instructions ---
-log_info "--- 接下来，请您手动完成初始化 ---"
-echo "1. 进入容器的交互式 Shell (请复制并执行下面的命令):"
+log_info "--- 插件已在构建时自动安装 ---"
+echo "Zsh (zinit) 和 Neovim (lazy.nvim) 插件已在镜像构建时自动安装。"
+echo
+echo "如需进入容器进行额外的手动配置:"
 echo -e "   ${SUCCESS}docker exec -it ${CONTAINER_NAME} /bin/zsh${NC}"
 echo
-echo "2. 在进入容器后，手动执行以下命令完成初始化:"
-echo -e "   (在容器内的 zsh 提示符后输入) ${SUCCESS}source ~/.zshrc${NC}"
-echo "   (这个过程可能会持续几十秒，请耐心等待它完成，直到再次出现提示符)"
-echo
-echo -e "   (接着输入) ${SUCCESS}nvim +PlugInstall +qa${NC}"
-echo "   (这将启动 Neovim 并自动下载插件，完成后会自动退出)"
-echo
-echo "3. 初始化完成后，输入 'exit' 退出容器:"
-echo -e "   (在容器内的 zsh 提示符后输入) ${SUCCESS}exit${NC}"
-echo
-echo "4. 完成以上所有步骤后，请执行新的打包脚本:"
+echo "完成后，请执行打包脚本:"
 echo -e "   ${SUCCESS}make package${NC}"
