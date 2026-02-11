@@ -52,6 +52,7 @@ if ! docker build --platform linux/amd64 ${DOCKER_BUILD_OPTIONS} \
     --build-arg USER_ID=${USER_ID} \
     --build-arg GROUP_ID=${GROUP_ID} \
     --build-arg LOCAL_SETUP_SCRIPT=${LOCAL_SETUP_SCRIPT} \
+    --build-arg PROFILE=${PROFILE:-extra} \
     -f "${DOCKERFILE_PREPARE}" -t "${IMAGE_NAME}" .; then
     error_exit "Docker 镜像构建失败"
 fi

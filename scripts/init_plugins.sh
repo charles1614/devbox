@@ -21,8 +21,7 @@ log_error()   { echo -e "${ERROR}[init_plugins] $1${NC}" >&2; }
 log_warning() { echo -e "${WARNING}[init_plugins] $1${NC}" >&2; }
 
 # --- Environment ---
-export ASDF_DATA_DIR="${ASDF_DATA_DIR:-$HOME/.asdf}"
-export PATH="$ASDF_DATA_DIR/bin:$ASDF_DATA_DIR/shims:$HOME/.local/bin:$PATH"
+export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$PATH"
 export TERM="${TERM:-xterm-256color}"
 
 WARNINGS=0
@@ -54,31 +53,14 @@ ZSH_EOF
         ((WARNINGS++))
     fi
 
-    # --- Pre-install gitstatusd (powerlevel10k dependency) ---
-    # Powerlevel10k only fetches gitstatusd on first interactive prompt render,
-    # which doesn't happen during build. Run the bundled install script directly.
-    local p10k_dir="$HOME/.local/share/zinit/plugins/romkatv---powerlevel10k"
-    if [[ -x "$p10k_dir/gitstatus/install" ]]; then
-        log_info "Pre-installing gitstatusd binary..."
-        if "$p10k_dir/gitstatus/install" -f 2>&1; then
-            log_success "gitstatusd installed"
-        else
-            log_warning "gitstatusd install had issues (will auto-install on first use)"
-            ((WARNINGS++))
-        fi
-    else
-        log_warning "Powerlevel10k gitstatus/install not found — gitstatusd will auto-install on first use"
-        ((WARNINGS++))
-    fi
-
     # --- Verify zinit plugins ---
     local plugin_dir="$HOME/.local/share/zinit/plugins"
     if [[ -d "$plugin_dir" ]]; then
         local count
         count=$(find "$plugin_dir" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l)
         log_info "Zinit plugins downloaded: ${count}"
-        if [[ "$count" -lt 5 ]]; then
-            log_warning "Expected at least 5 zinit plugins, got ${count}"
+        if [[ "$count" -lt 3 ]]; then
+            log_warning "Expected at least 3 zinit plugins, got ${count}"
             ((WARNINGS++))
         fi
     else
@@ -86,14 +68,12 @@ ZSH_EOF
         ((WARNINGS++))
     fi
 
-    # --- Verify gitstatusd binary ---
-    local cache_dir="${GITSTATUS_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/gitstatus}"
-    local gitstatusd_bin
-    gitstatusd_bin=$(find "$cache_dir" -name 'gitstatusd-*' -type f 2>/dev/null | head -1)
-    if [[ -n "$gitstatusd_bin" ]]; then
-        log_success "gitstatusd binary cached at: $gitstatusd_bin"
+    # --- Verify starship prompt ---
+    if command -v starship &>/dev/null; then
+        log_success "Starship prompt available: $(starship --version | head -1)"
     else
-        log_warning "gitstatusd binary not found in $cache_dir"
+        log_warning "Starship not found in PATH"
+        ((WARNINGS++))
     fi
 }
 

@@ -8,8 +8,8 @@ Pre-built images are published to GHCR automatically on every push to `main`. Tw
 
 | Profile | Tools |
 |---------|-------|
-| **mini** | python, chezmoi, neovim, uv, zellij, fzf, zoxide |
-| **extra** | everything in mini + rust, eza, lazygit, ctop, dust, nodejs, golang, clang |
+| **mini** | python, uv, neovim, fzf, zoxide, chezmoi, zellij, starship, jq, ripgrep, fd |
+| **extra** | everything in mini + node.js, go, rust, eza, lazygit, delta, bat, dust, yazi, btop, procs, tealdeer, xh, gping, llvm/clang |
 
 ```bash
 # Pull the image
@@ -21,7 +21,7 @@ docker pull ghcr.io/charles1614/devbox:extra-latest
 docker run -it ghcr.io/charles1614/devbox:extra-latest
 ```
 
-All tools, shell plugins (zinit), and neovim plugins (lazy.nvim) are pre-installed during the image build. No manual initialization is needed.
+All tools (managed by mise), shell plugins (zinit), starship prompt, and neovim plugins (lazy.nvim) are pre-installed during the image build. No manual initialization is needed.
 
 ## Download Offline Bundle
 

@@ -55,13 +55,6 @@ WORKDIR /home/${USERNAME}
 # Install development tools and configurations
 RUN bash -l -c "/usr/local/bin/run.sh --profile ${PROFILE} --set-zsh-default --chezmoi https://github.com/charles1614/dotfiles.git"
 
-# Final stage - set default shell
-USER root
-RUN chsh -s /bin/zsh ${USERNAME}
-
-# Switch back to user
-USER ${USERNAME}
-
 # Auto-install zsh (zinit) and neovim (lazy.nvim) plugins
 RUN /usr/local/bin/init_plugins.sh
 
