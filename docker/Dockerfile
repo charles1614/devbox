@@ -53,7 +53,7 @@ USER ${USERNAME}
 WORKDIR /home/${USERNAME}
 
 # Install development tools and configurations
-RUN bash -l -c "/usr/local/bin/run.sh --profile ${PROFILE} --set-zsh-default --chezmoi https://github.com/charles1614/dotfiles.git"
+RUN bash -l -c "/usr/local/bin/run.sh --profile ${PROFILE} --set-zsh-default"
 
 # Auto-install zsh (zinit) and neovim (lazy.nvim) plugins
 RUN /usr/local/bin/init_plugins.sh
