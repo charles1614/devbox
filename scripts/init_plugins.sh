@@ -2,7 +2,7 @@
 
 # ==============================================================================
 # Script: Initialize Plugins
-# Automates zsh (zinit) and neovim (lazy.nvim) plugin installation.
+# Automates zsh (zap) and neovim (lazy.nvim) plugin installation.
 # Designed to run during Docker build (no TTY, no interactive prompts).
 # ==============================================================================
 
@@ -39,10 +39,10 @@ WARNINGS=0
 NVIM_TIMEOUT=300  # 5 minutes per nvim headless pass
 
 # ==============================================================================
-# 1. Zsh / Zinit Plugins
+# 1. Zsh / Zap Plugins
 # ==============================================================================
 install_zsh_plugins() {
-    log_info "Installing zsh/zinit plugins..."
+    log_info "Installing zsh/zap plugins..."
 
     if [[ ! -f "$HOME/.zshrc" ]]; then
         log_warning "No .zshrc found, skipping zsh plugin installation"
@@ -50,10 +50,28 @@ install_zsh_plugins() {
         return
     fi
 
+    # --- Pre-install Zap plugin manager ---
+    # Zap's auto-installer (in .zshrc) moves the existing .zshrc to a backup
+    # and creates a new default one. Pre-cloning Zap ensures the installer is
+    # skipped, preserving the chezmoi-managed .zshrc.
+    local zap_dir="${XDG_DATA_HOME:-$HOME/.local/share}/zap"
+    if [[ ! -d "$zap_dir" ]]; then
+        log_info "Pre-installing Zap plugin manager..."
+        if git clone --depth 1 --branch release-v1 \
+            https://github.com/zap-zsh/zap.git "$zap_dir" 2>&1; then
+            log_success "Zap pre-installed to $zap_dir"
+        else
+            log_warning "Failed to clone Zap"
+            ((WARNINGS++))
+        fi
+    else
+        log_info "Zap already installed at $zap_dir"
+    fi
+
     # Source .zshrc in an interactive zsh subshell via stdin (zsh -is).
-    # Using -i ensures zinit treats this as an interactive session and fully
-    # installs all plugins. Without -i, zinit may skip or defer downloads.
-    # TERM is set (in Environment section above) so bindkey calls work.
+    # Using -i ensures zap treats this as an interactive session and fully
+    # installs all plugins. TERM is set (in Environment section above) so
+    # bindkey calls work.
     log_info "Sourcing .zshrc in interactive subshell..."
     if zsh -is <<'ZSH_EOF' 2>&1
 source ~/.zshrc
@@ -65,18 +83,18 @@ ZSH_EOF
         ((WARNINGS++))
     fi
 
-    # --- Verify zinit plugins ---
-    local plugin_dir="$HOME/.local/share/zinit/plugins"
+    # --- Verify Zap plugins ---
+    local plugin_dir="${XDG_DATA_HOME:-$HOME/.local/share}/zap/plugins"
     if [[ -d "$plugin_dir" ]]; then
         local count
         count=$(find "$plugin_dir" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l)
-        log_info "Zinit plugins downloaded: ${count}"
+        log_info "Zap plugins downloaded: ${count}"
         if [[ "$count" -lt 3 ]]; then
-            log_warning "Expected at least 3 zinit plugins, got ${count}"
+            log_warning "Expected at least 3 zap plugins, got ${count}"
             ((WARNINGS++))
         fi
     else
-        log_warning "Zinit plugin directory not found at ${plugin_dir}"
+        log_warning "Zap plugin directory not found at ${plugin_dir}"
         ((WARNINGS++))
     fi
 

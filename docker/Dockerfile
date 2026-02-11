@@ -53,12 +53,12 @@ USER ${USERNAME}
 WORKDIR /home/${USERNAME}
 
 # Install development tools and configurations
-RUN bash -l -c "/usr/local/bin/run.sh --profile ${PROFILE} --set-zsh-default"
+RUN bash -l -c "/usr/local/bin/run.sh --profile ${PROFILE} --set-zsh-default --chezmoi https://github.com/charles1614/dotfiles.git"
 
 # Ensure mise-managed tools (starship, etc.) are on PATH for all shells
 ENV PATH="/home/${USERNAME}/.local/share/mise/shims:/home/${USERNAME}/.local/bin:${PATH}"
 
-# Auto-install zsh (zinit) and neovim (lazy.nvim) plugins
+# Auto-install zsh (zap) and neovim (lazy.nvim) plugins
 # GITHUB_TOKEN is passed as a build secret to raise GitHub API rate limits
 # from 60/hr (unauthenticated) to 5000/hr, preventing plugin clone hangs in CI.
 RUN --mount=type=secret,id=github_token \
