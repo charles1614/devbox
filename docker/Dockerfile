@@ -52,11 +52,11 @@ RUN chmod +x /usr/local/bin/run.sh /usr/local/bin/init_plugins.sh
 USER ${USERNAME}
 WORKDIR /home/${USERNAME}
 
+# Ensure mise-managed tools (chezmoi, starship, etc.) are on PATH for all shells
+ENV PATH="/home/${USERNAME}/.local/share/mise/shims:/home/${USERNAME}/.local/bin:${PATH}"
+
 # Install development tools and configurations
 RUN bash -l -c "/usr/local/bin/run.sh --profile ${PROFILE} --set-zsh-default --chezmoi https://github.com/charles1614/dotfiles.git"
-
-# Ensure mise-managed tools (starship, etc.) are on PATH for all shells
-ENV PATH="/home/${USERNAME}/.local/share/mise/shims:/home/${USERNAME}/.local/bin:${PATH}"
 
 # Auto-install zsh (zap) and neovim (lazy.nvim) plugins
 # GITHUB_TOKEN is passed as a build secret to raise GitHub API rate limits
