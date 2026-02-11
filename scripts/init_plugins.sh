@@ -23,8 +23,20 @@ log_warning() { echo -e "${WARNING}[init_plugins] $1${NC}" >&2; }
 # --- Environment ---
 export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$PATH"
 export TERM="${TERM:-xterm-256color}"
+export GIT_TERMINAL_PROMPT=0  # Prevent git from hanging on auth prompts
+
+# If GITHUB_TOKEN is available (passed as Docker build secret), configure
+# authenticated git access via env vars. This avoids persisting tokens to disk
+# and raises GitHub API rate limits from 60/hr to 5000/hr.
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+    log_info "GITHUB_TOKEN detected, configuring authenticated git access..."
+    export GIT_CONFIG_COUNT=1
+    export GIT_CONFIG_KEY_0="url.https://x-access-token:${GITHUB_TOKEN}@github.com/.insteadOf"
+    export GIT_CONFIG_VALUE_0="https://github.com/"
+fi
 
 WARNINGS=0
+NVIM_TIMEOUT=300  # 5 minutes per nvim headless pass
 
 # ==============================================================================
 # 1. Zsh / Zinit Plugins
@@ -100,37 +112,59 @@ install_nvim_plugins() {
     # --- Pass 1: Bootstrap lazy.nvim + install plugins ---
     # On first run, init.lua clones lazy.nvim itself, then require("lazy").setup()
     # registers all plugins. "Lazy! sync" forces a synchronous install/update.
+    # Each pass is wrapped with `timeout` to prevent CI from hanging forever.
     log_info "Pass 1/4: Lazy sync (bootstrap + install)..."
-    if nvim --headless "+Lazy! sync" +qa 2>&1; then
+    if timeout "$NVIM_TIMEOUT" nvim --headless "+Lazy! sync" +qa 2>&1; then
         log_success "Pass 1 completed"
     else
-        log_warning "Pass 1 exited non-zero (expected on first bootstrap)"
+        local rc=$?
+        if [ "$rc" -eq 124 ]; then
+            log_warning "Pass 1 timed out after ${NVIM_TIMEOUT}s"
+        else
+            log_warning "Pass 1 exited non-zero (expected on first bootstrap)"
+        fi
+        ((WARNINGS++))
     fi
 
     # --- Pass 2: Second sync to settle any first-run race conditions ---
     log_info "Pass 2/4: Lazy sync (verify)..."
-    if nvim --headless "+Lazy! sync" +qa 2>&1; then
+    if timeout "$NVIM_TIMEOUT" nvim --headless "+Lazy! sync" +qa 2>&1; then
         log_success "Pass 2 completed"
     else
-        log_warning "Pass 2 had errors"
+        local rc=$?
+        if [ "$rc" -eq 124 ]; then
+            log_warning "Pass 2 timed out after ${NVIM_TIMEOUT}s"
+        else
+            log_warning "Pass 2 had errors"
+        fi
         ((WARNINGS++))
     fi
 
     # --- Pass 3: TreeSitter parsers (native compilation) ---
     log_info "Pass 3/4: TreeSitter parser installation..."
-    if nvim --headless "+TSUpdateSync" +qa 2>&1; then
+    if timeout "$NVIM_TIMEOUT" nvim --headless "+TSUpdateSync" +qa 2>&1; then
         log_success "TreeSitter parsers installed"
     else
-        log_warning "TreeSitter installation had errors"
+        local rc=$?
+        if [ "$rc" -eq 124 ]; then
+            log_warning "Pass 3 timed out after ${NVIM_TIMEOUT}s"
+        else
+            log_warning "TreeSitter installation had errors"
+        fi
         ((WARNINGS++))
     fi
 
     # --- Pass 4: Mason tools ---
     log_info "Pass 4/4: Mason tools..."
-    if nvim --headless -c "MasonToolsInstallSync" -c "qa" 2>&1; then
+    if timeout "$NVIM_TIMEOUT" nvim --headless -c "MasonToolsInstallSync" -c "qa" 2>&1; then
         log_success "Mason tools installed"
     else
-        log_warning "Mason tools installation had errors"
+        local rc=$?
+        if [ "$rc" -eq 124 ]; then
+            log_warning "Pass 4 timed out after ${NVIM_TIMEOUT}s"
+        else
+            log_warning "Mason tools installation had errors"
+        fi
         ((WARNINGS++))
     fi
 

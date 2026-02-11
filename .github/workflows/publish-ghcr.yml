@@ -65,6 +65,8 @@ jobs:
             GROUP_ID=1000
             LOCAL_SETUP_SCRIPT=original_setup.sh
             PROFILE=${{ matrix.profile }}
+          secrets: |
+            github_token=${{ secrets.GITHUB_TOKEN }}
           cache-from: type=gha,scope=${{ matrix.profile }}
           cache-to: type=gha,mode=max,scope=${{ matrix.profile }}
 

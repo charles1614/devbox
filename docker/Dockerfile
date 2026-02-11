@@ -56,7 +56,11 @@ WORKDIR /home/${USERNAME}
 RUN bash -l -c "/usr/local/bin/run.sh --profile ${PROFILE} --set-zsh-default"
 
 # Auto-install zsh (zinit) and neovim (lazy.nvim) plugins
-RUN /usr/local/bin/init_plugins.sh
+# GITHUB_TOKEN is passed as a build secret to raise GitHub API rate limits
+# from 60/hr (unauthenticated) to 5000/hr, preventing plugin clone hangs in CI.
+RUN --mount=type=secret,id=github_token \
+    GITHUB_TOKEN=$(cat /run/secrets/github_token 2>/dev/null || true) \
+    /usr/local/bin/init_plugins.sh
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
