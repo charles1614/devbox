@@ -55,6 +55,8 @@ WORKDIR /home/${USERNAME}
 # Ensure mise-managed tools (chezmoi, starship, etc.) are on PATH for all shells
 ENV PATH="/home/${USERNAME}/.local/share/mise/shims:/home/${USERNAME}/.local/bin:${PATH}"
 
+# When triggered by dotfiles changes, bust cache from this point onward
+ARG CACHEBUST=
 # Install development tools and configurations
 RUN bash -l -c "/usr/local/bin/run.sh --profile ${PROFILE} --set-zsh-default --chezmoi https://github.com/charles1614/dotfiles.git"
 

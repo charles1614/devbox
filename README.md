@@ -114,6 +114,41 @@ cp config.env.example config.env
 | `make clean` | Clean up containers, images, and temp files |
 | `make workflow` | Run setup + prepare in sequence |
 
+## Auto-rebuild on Dotfiles Changes
+
+The devbox CI supports automatic rebuilds when your [dotfiles repo](https://github.com/charles1614/dotfiles) is updated, via GitHub's `repository_dispatch`. When triggered this way, the Docker cache is busted from the chezmoi step onward so the latest dotfiles are always picked up.
+
+### Setup
+
+1. **Create a Personal Access Token (PAT)** — GitHub > Settings > Developer settings > Personal access tokens. Use a classic token with `repo` scope, or a fine-grained token with `contents: write` on `charles1614/devbox`.
+
+2. **Add the PAT as a secret** — Go to `charles1614/dotfiles` > Settings > Secrets and variables > Actions > New repository secret. Name it `DEVBOX_PAT`.
+
+3. **Add a workflow in the dotfiles repo** — Create `.github/workflows/notify-devbox.yml`:
+
+```yaml
+name: Notify devbox
+on:
+  push:
+    branches: [main]
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          curl -X POST \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token ${{ secrets.DEVBOX_PAT }}" \
+            https://api.github.com/repos/charles1614/devbox/dispatches \
+            -d '{"event_type":"dotfiles-updated","client_payload":{"timestamp":"'"$(date +%s)"'"}}'
+```
+
+### Flow
+
+```
+dotfiles push → notify-devbox.yml → repository_dispatch → devbox CI rebuilds (cache busted)
+```
+
 ## Prerequisites
 
 - **Docker** — for building, testing, and running environments
