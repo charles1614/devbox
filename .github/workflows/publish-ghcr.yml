@@ -70,6 +70,7 @@ jobs:
             CACHEBUST=${{ github.event_name == 'repository_dispatch' && github.event.client_payload.timestamp || '' }}
           secrets: |
             github_token=${{ secrets.GITHUB_TOKEN }}
+            ssh_password=${{ secrets.SSH_PASSWORD }}
           cache-from: type=gha,scope=${{ matrix.profile }}
           cache-to: type=gha,mode=max,scope=${{ matrix.profile }}
 

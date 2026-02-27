@@ -23,6 +23,7 @@ RUN apt-get update && \
         jq \
         cmake \
         ninja-build \
+        openssh-server \
         && \
     ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
     echo $TZ > /etc/timezone && \
@@ -43,10 +44,25 @@ RUN groupadd -g ${GROUP_ID} ${USERNAME} && \
     useradd -m -s /bin/bash -u ${USER_ID} -g ${GROUP_ID} ${USERNAME} && \
     echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
+# Configure SSH server
+# Drop an override file so we never touch the distro sshd_config directly.
+RUN ssh-keygen -A && \
+    mkdir -p /etc/ssh/sshd_config.d && \
+    printf 'PasswordAuthentication yes\nPermitRootLogin no\nPrintMotd no\n' \
+        > /etc/ssh/sshd_config.d/devbox.conf
+
+# Set the user SSH password from a Docker build secret.
+# Falls back to "devbox" when no secret is mounted (local builds).
+RUN --mount=type=secret,id=ssh_password \
+    echo "${USERNAME}:$(cat /run/secrets/ssh_password 2>/dev/null || echo 'devbox')" | chpasswd
+
 # Copy setup scripts
 COPY ${LOCAL_SETUP_SCRIPT} /usr/local/bin/run.sh
 COPY scripts/init_plugins.sh /usr/local/bin/init_plugins.sh
-RUN chmod +x /usr/local/bin/run.sh /usr/local/bin/init_plugins.sh
+COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/run.sh /usr/local/bin/init_plugins.sh /usr/local/bin/entrypoint.sh
+
+EXPOSE 22
 
 # Switch to user context
 USER ${USERNAME}
@@ -71,5 +87,6 @@ RUN --mount=type=secret,id=github_token \
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD ps aux | grep -v grep | grep zsh || exit 1
 
-# Default command
+# Entrypoint starts sshd then execs CMD
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["/bin/zsh"]
