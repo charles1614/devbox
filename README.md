@@ -19,9 +19,60 @@ docker pull ghcr.io/charles1614/devbox:extra-latest
 
 # Run interactive shell (ready to use immediately)
 docker run -it ghcr.io/charles1614/devbox:extra-latest
+
+# Or run in the background with SSH exposed on port 2222
+docker run -d -p 2222:22 --name devbox ghcr.io/charles1614/devbox:extra-latest
+ssh -p 2222 charles@localhost   # default password: devbox
 ```
 
 All tools (managed by mise), shell plugins (zinit), starship prompt, and neovim plugins (lazy.nvim) are pre-installed during the image build. No manual initialization is needed.
+
+## SSH into the Container
+
+The image runs an SSH daemon on port 22 automatically. This lets you connect with any SSH client (terminal, VS Code Remote-SSH, JetBrains Gateway, etc.) instead of using `docker exec`.
+
+### Quick start
+
+```bash
+# Run with port 22 published to a local port (e.g. 2222)
+docker run -d -p 2222:22 --name devbox ghcr.io/charles1614/devbox:extra-latest
+
+# SSH in (default password: devbox)
+ssh -p 2222 charles@localhost
+```
+
+> The default SSH password is **`devbox`**. For local builds you can override it by passing a Docker build secret named `ssh_password` (see [Build Locally](#build-locally)).
+
+### VS Code Remote-SSH
+
+Add an entry to your `~/.ssh/config`:
+
+```
+Host devbox
+    HostName localhost
+    Port 2222
+    User charles
+```
+
+Then open the **Remote-SSH** extension and connect to `devbox`.
+
+### Change the password inside the container
+
+```bash
+passwd
+```
+
+### Using a public key (recommended)
+
+```bash
+# Copy your public key into the running container
+ssh-copy-id -p 2222 charles@localhost
+
+# Or manually
+docker exec devbox bash -c "mkdir -p ~/.ssh && echo '$(cat ~/.ssh/id_ed25519.pub)' >> ~/.ssh/authorized_keys && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys"
+```
+
+Once a key is installed, password authentication is no longer required.
 
 ## Download Offline Bundle
 
