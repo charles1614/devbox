@@ -39,9 +39,14 @@ ARG GROUP_ID
 ARG LOCAL_SETUP_SCRIPT
 ARG PROFILE=extra
 
-# Create user and group (skip groupadd if GID already exists in the base image)
+# Create user and group (handle GID/UID that already exist in the base image)
 RUN (getent group ${GROUP_ID} > /dev/null 2>&1 || groupadd -g ${GROUP_ID} ${USERNAME}) && \
-    useradd -m -s /bin/bash -u ${USER_ID} -g ${GROUP_ID} ${USERNAME} && \
+    if getent passwd ${USER_ID} > /dev/null 2>&1; then \
+        existing_user=$(getent passwd ${USER_ID} | cut -d: -f1) && \
+        usermod -l ${USERNAME} -d /home/${USERNAME} -m -s /bin/bash -g ${GROUP_ID} "$existing_user"; \
+    else \
+        useradd -m -s /bin/bash -u ${USER_ID} -g ${GROUP_ID} ${USERNAME}; \
+    fi && \
     echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
 # Configure SSH server
