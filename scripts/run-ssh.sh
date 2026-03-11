@@ -138,7 +138,8 @@ for vol in ${EXTRA_VOLUMES[@]+"${EXTRA_VOLUMES[@]}"}; do
     echo "  Volume   : ${vol}"
 done
 
-CID=$(docker run --rm -d \
+CID=$(docker run -d \
+    --restart unless-stopped \
     -p "${SSH_PORT}:22" \
     ${MOUNTS[@]+"${MOUNTS[@]}"} \
     --name "${CONTAINER_NAME}" \
