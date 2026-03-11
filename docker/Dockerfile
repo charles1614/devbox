@@ -39,8 +39,8 @@ ARG GROUP_ID
 ARG LOCAL_SETUP_SCRIPT
 ARG PROFILE=extra
 
-# Create user and group
-RUN groupadd -g ${GROUP_ID} ${USERNAME} && \
+# Create user and group (skip groupadd if GID already exists in the base image)
+RUN (getent group ${GROUP_ID} > /dev/null 2>&1 || groupadd -g ${GROUP_ID} ${USERNAME}) && \
     useradd -m -s /bin/bash -u ${USER_ID} -g ${GROUP_ID} ${USERNAME} && \
     echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
