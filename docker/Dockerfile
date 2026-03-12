@@ -4,7 +4,7 @@
 # ==============================================================================
 
 # Build stage for dependencies
-FROM nvcr.io/nvidia/cuda:13.1.0-runtime-ubuntu24.04 AS base
+FROM nvcr.io/nvidia/cuda:13.1.0-devel-ubuntu24.04 AS base
 
 # Set environment variables to avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
