@@ -78,8 +78,12 @@ ENV PATH="/home/${USERNAME}/.local/share/mise/shims:/home/${USERNAME}/.local/bin
 
 # When triggered by dotfiles changes, bust cache from this point onward
 ARG CACHEBUST=
-# Install development tools and configurations
-RUN bash -l -c "/usr/local/bin/run.sh --profile ${PROFILE} --set-zsh-default --chezmoi https://github.com/charles1614/dotfiles.git"
+# Install development tools and configurations.
+# MISE_PYTHON_GITHUB_ATTESTATIONS=false: python core plugin now requires signed
+# GitHub artifact attestations by default, which aren't published for every
+# CPython release and break the build (e.g. 3.10.15).
+RUN MISE_PYTHON_GITHUB_ATTESTATIONS=false \
+    bash -l -c "/usr/local/bin/run.sh --profile ${PROFILE} --set-zsh-default --chezmoi https://github.com/charles1614/dotfiles.git"
 
 # Auto-install zsh (zap) and neovim (lazy.nvim) plugins
 # GITHUB_TOKEN is passed as a build secret to raise GitHub API rate limits
