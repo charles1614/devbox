@@ -12,19 +12,27 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-
+  build:
     strategy:
       fail-fast: false
       matrix:
         profile: [mini, extra]
+        platform:
+          - linux/amd64
+          - linux/arm64
+
+    runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
 
     permissions:
       contents: read
       packages: write
 
     steps:
+      - name: Prepare platform pair
+        run: |
+          platform=${{ matrix.platform }}
+          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -40,27 +48,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=sha,prefix=${{ matrix.profile }}-
-            type=raw,value=${{ matrix.profile }}-latest,enable={{is_default_branch}}
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push
+      - name: Build and push by digest
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64
+          platforms: ${{ matrix.platform }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           build-args: |
             USERNAME=charles
             USER_ID=1000
@@ -71,15 +70,89 @@ jobs:
           secrets: |
             github_token=${{ secrets.GITHUB_TOKEN }}
             ssh_password=${{ secrets.SSH_PASSWORD }}
-          cache-from: type=gha,scope=${{ matrix.profile }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.profile }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.profile }}-${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.profile }}-${{ env.PLATFORM_PAIR }}
 
-  release:
-    needs: build-and-push
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.profile }}-${{ env.PLATFORM_PAIR }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: build
     runs-on: ubuntu-latest
 
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [mini, extra]
+
     permissions:
-      contents: write
+      contents: read
+      packages: write
+
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-${{ matrix.profile }}-*
+          merge-multiple: true
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=${{ matrix.profile }}-
+            type=raw,value=${{ matrix.profile }}-latest,enable={{is_default_branch}}
+
+      - name: Create manifest list
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
+
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+
+  package:
+    needs: merge
+
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [mini, extra]
+        arch: [amd64, arm64]
+
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+
+    permissions:
+      contents: read
       packages: read
 
     steps:
@@ -90,23 +163,55 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Package home directories from GHCR images
+      - name: Package home directory
         run: |
-          for PROFILE in mini extra; do
-            IMAGE="${REGISTRY}/${IMAGE_NAME}:${PROFILE}-latest"
-            CONTAINER="package_${PROFILE}"
+          IMAGE="${REGISTRY}/${IMAGE_NAME}:${{ matrix.profile }}-latest"
+          CONTAINER="package_${{ matrix.profile }}_${{ matrix.arch }}"
+          ARCHIVE="charles_home_${{ matrix.profile }}_${{ matrix.arch }}.tar.gz"
 
-            echo "=== Packaging ${PROFILE} ==="
-            docker pull "$IMAGE"
-            docker run -d --name "$CONTAINER" "$IMAGE" tail -f /dev/null
-            docker cp "$CONTAINER:/home/charles" ./charles_home_temp
-            tar --owner=0 --group=0 -czf "charles_home_${PROFILE}.tar.gz" -C charles_home_temp .
-            ls -lh "charles_home_${PROFILE}.tar.gz"
+          echo "=== Packaging ${{ matrix.profile }} / ${{ matrix.arch }} ==="
+          docker pull "$IMAGE"
+          # Sanity-check that docker pulled the native arch variant
+          pulled_arch=$(docker image inspect "$IMAGE" --format '{{.Architecture}}')
+          if [ "$pulled_arch" != "${{ matrix.arch }}" ]; then
+            echo "::error::Expected arch ${{ matrix.arch }}, got $pulled_arch"
+            exit 1
+          fi
 
-            docker stop "$CONTAINER"
-            docker rm "$CONTAINER"
-            rm -rf charles_home_temp
-          done
+          docker run -d --name "$CONTAINER" "$IMAGE" tail -f /dev/null
+          docker cp "$CONTAINER:/home/charles" ./charles_home_temp
+          tar --owner=0 --group=0 -czf "$ARCHIVE" -C charles_home_temp .
+          ls -lh "$ARCHIVE"
+
+          docker stop "$CONTAINER"
+          docker rm "$CONTAINER"
+          rm -rf charles_home_temp
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: charles_home_${{ matrix.profile }}_${{ matrix.arch }}
+          path: charles_home_${{ matrix.profile }}_${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    needs: package
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all archives
+        uses: actions/download-artifact@v4
+        with:
+          path: ./archives
+          pattern: charles_home_*
+          merge-multiple: true
+
+      - name: List archives
+        run: ls -lh ./archives
 
       - name: Generate release tag
         id: tag
@@ -123,17 +228,22 @@ jobs:
             Automated build from [`${{ github.sha }}`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
 
             ## Download
-            | Profile | Archive |
-            |---------|---------|
-            | **mini** | `charles_home_mini.tar.gz` |
-            | **extra** | `charles_home_extra.tar.gz` |
+
+            Pick the archive matching your profile and CPU architecture
+            (`uname -m` → `x86_64` = amd64, `aarch64` = arm64).
+
+            | Profile | amd64 | arm64 |
+            |---------|-------|-------|
+            | **mini** | `charles_home_mini_amd64.tar.gz` | `charles_home_mini_arm64.tar.gz` |
+            | **extra** | `charles_home_extra_amd64.tar.gz` | `charles_home_extra_arm64.tar.gz` |
 
             ## Restore
             ```bash
-            sudo make restore FILE=charles_home_mini.tar.gz
-            # or
-            sudo make restore FILE=charles_home_extra.tar.gz
+            sudo make restore FILE=charles_home_extra_amd64.tar.gz
+            # or the arm64 / mini variant
             ```
           files: |
-            charles_home_mini.tar.gz
-            charles_home_extra.tar.gz
+            archives/charles_home_mini_amd64.tar.gz
+            archives/charles_home_mini_arm64.tar.gz
+            archives/charles_home_extra_amd64.tar.gz
+            archives/charles_home_extra_arm64.tar.gz

@@ -4,7 +4,7 @@ A solution for creating, packaging, and restoring portable development environme
 
 ## Quick Start from GHCR
 
-Pre-built images are published to GHCR automatically on every push to `main`. Two profiles are available:
+Pre-built images are published to GHCR automatically on every push to `main`. Images are multi-arch (`linux/amd64` and `linux/arm64`); `docker pull` selects the variant matching your host. Two profiles are available:
 
 | Profile | Tools |
 |---------|-------|
@@ -76,10 +76,12 @@ Once a key is installed, password authentication is no longer required.
 
 ## Download Offline Bundle
 
-Pre-built home directory archives are available on the [Releases](https://github.com/charles1614/devbox/releases) page:
+Pre-built home directory archives are available on the [Releases](https://github.com/charles1614/devbox/releases) page. Pick the file matching your profile and CPU architecture (`uname -m` → `x86_64` = amd64, `aarch64` = arm64):
 
-- `charles_home_mini.tar.gz` — mini profile
-- `charles_home_extra.tar.gz` — extra profile
+| Profile | amd64 | arm64 |
+|---------|-------|-------|
+| **mini** | `charles_home_mini_amd64.tar.gz` | `charles_home_mini_arm64.tar.gz` |
+| **extra** | `charles_home_extra_amd64.tar.gz` | `charles_home_extra_arm64.tar.gz` |
 
 ## Build Locally
 
@@ -112,14 +114,14 @@ Download the archive from [Releases](https://github.com/charles1614/devbox/relea
 
 **On Ubuntu system:**
 ```bash
-sudo make restore FILE=charles_home_extra.tar.gz
-# or
-sudo make restore FILE=charles_home_mini.tar.gz
+sudo make restore FILE=charles_home_extra_amd64.tar.gz
+# or the arm64 / mini variant, e.g.
+sudo make restore FILE=charles_home_mini_arm64.tar.gz
 ```
 
 **Test in Docker:**
 ```bash
-make test FILE=charles_home_extra.tar.gz
+make test FILE=charles_home_extra_amd64.tar.gz
 ```
 
 ## Project Structure
