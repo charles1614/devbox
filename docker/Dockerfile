@@ -86,9 +86,14 @@ ARG CACHEBUST=
 # mise-llvm plugin, which fetches the large llvm-project source archive from
 # github.com and gets HTTP 429 rate-limited on the shared CI IP when anonymous).
 # GITHUB_TOKEN raises mise's own GitHub API limit from 60/hr to 5000/hr.
+# The archive URL 302-redirects github.com -> codeload.github.com; curl strips
+# the Authorization header across that cross-host redirect unless told to trust
+# it, so a CURL_HOME/.curlrc with `location-trusted` keeps the token attached to
+# the actual (codeload) download and lifts the anonymous throttle.
 RUN --mount=type=secret,id=github_token \
     export GITHUB_API_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)"; \
     export GITHUB_TOKEN="$GITHUB_API_TOKEN"; \
+    mkdir -p /tmp/curlcfg && printf 'location-trusted\n' > /tmp/curlcfg/.curlrc && export CURL_HOME=/tmp/curlcfg; \
     MISE_PYTHON_GITHUB_ATTESTATIONS=false \
     bash -l -c "/usr/local/bin/run.sh --profile ${PROFILE} --set-zsh-default --chezmoi https://github.com/charles1614/dotfiles.git"
 
