@@ -82,7 +82,14 @@ ARG CACHEBUST=
 # MISE_PYTHON_GITHUB_ATTESTATIONS=false: python core plugin now requires signed
 # GitHub artifact attestations by default, which aren't published for every
 # CPython release and break the build (e.g. 3.10.15).
-RUN MISE_PYTHON_GITHUB_ATTESTATIONS=false \
+# GITHUB_API_TOKEN authenticates downloads inside mise plugins (notably the
+# mise-llvm plugin, which fetches the large llvm-project source archive from
+# github.com and gets HTTP 429 rate-limited on the shared CI IP when anonymous).
+# GITHUB_TOKEN raises mise's own GitHub API limit from 60/hr to 5000/hr.
+RUN --mount=type=secret,id=github_token \
+    export GITHUB_API_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)"; \
+    export GITHUB_TOKEN="$GITHUB_API_TOKEN"; \
+    MISE_PYTHON_GITHUB_ATTESTATIONS=false \
     bash -l -c "/usr/local/bin/run.sh --profile ${PROFILE} --set-zsh-default --chezmoi https://github.com/charles1614/dotfiles.git"
 
 # Auto-install zsh (zap) and neovim (lazy.nvim) plugins
