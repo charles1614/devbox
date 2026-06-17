@@ -62,8 +62,8 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           build-args: |
             USERNAME=charles
-            USER_ID=1000
-            GROUP_ID=1000
+            USER_ID=1001
+            GROUP_ID=1001
             LOCAL_SETUP_SCRIPT=original_setup.sh
             PROFILE=${{ matrix.profile }}
             CACHEBUST=${{ github.event_name == 'repository_dispatch' && github.event.client_payload.timestamp || '' }}
