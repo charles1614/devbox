@@ -30,7 +30,7 @@ trap cleanup EXIT
 
 # Parse command line arguments
 DOCKER_BUILD_OPTIONS=""
-if [[ "$1" == "--no-cache" ]]; then
+if [[ "${1:-}" == "--no-cache" ]]; then
     log_info "已启用 --no-cache 选项，将强制重新构建镜像"
     DOCKER_BUILD_OPTIONS="--no-cache"
 fi

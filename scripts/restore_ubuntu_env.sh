@@ -76,7 +76,7 @@ readonly INPUT_ARCHIVE="${ARCHIVE_FILE}"
 
 # --- Main logic ---
 log_info "步骤 1: 环境检查"
-# validate_sudo
+validate_sudo
 validate_file_exists "${INPUT_ARCHIVE}" "离线包"
 validate_os_compatibility
 log_success "环境检查通过。归档文件: ${INPUT_ARCHIVE}"
@@ -129,10 +129,13 @@ if ! apt-get update; then
     log_warning "APT 更新失败，可能存在网络问题或源配置不当。尝试继续安装..."
 fi
 
-# Install dependencies
+# Install dependencies. Failure is NOT fatal: on offline/air-gapped hosts the
+# home directory restore (the core of this script) still works — the bundle's
+# tools are self-contained. We warn and continue instead of aborting.
 log_info "正在安装 APT 依赖: ${APT_PACKAGES}..."
 if ! apt-get install -y --no-install-recommends ${APT_PACKAGES}; then
-    error_exit "APT 依赖安装失败"
+    log_warning "APT 依赖安装失败 (离线环境或源不可用)。继续恢复家目录。"
+    log_warning "联网后可手动补装: apt-get install -y --no-install-recommends ${APT_PACKAGES}"
 fi
 
 # Create symlink for fd-find

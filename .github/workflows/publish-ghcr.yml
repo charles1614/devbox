@@ -195,8 +195,38 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  release:
+  # Run the real restore script against each freshly packaged archive inside
+  # an isolated ubuntu:24.04 container (tests/test_docker_restore.sh). Gates
+  # the release: a bundle that fails to restore is never published.
+  test-restore:
     needs: package
+
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [mini, extra]
+        arch: [amd64, arm64]
+
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download archive
+        uses: actions/download-artifact@v4
+        with:
+          name: charles_home_${{ matrix.profile }}_${{ matrix.arch }}
+
+      - name: Run restore test
+        run: |
+          make test FILE=charles_home_${{ matrix.profile }}_${{ matrix.arch }}.tar.gz
+
+  release:
+    needs: [package, test-restore]
     runs-on: ubuntu-latest
 
     permissions:
@@ -239,8 +269,12 @@ jobs:
 
             ## Restore
             ```bash
-            sudo make restore FILE=charles_home_extra_amd64.tar.gz
-            # or the arm64 / mini variant
+            # no clone/make needed — downloads this archive automatically:
+            curl -fsSL ${{ github.server_url }}/${{ github.repository }}/archive/refs/heads/main.tar.gz | tar xz \
+              && cd devbox-main && sudo ./scripts/restore.sh --version ${{ steps.tag.outputs.tag }}
+
+            # or with a manually downloaded archive:
+            sudo ./scripts/restore.sh --file charles_home_extra_amd64.tar.gz
             ```
           files: |
             archives/charles_home_mini_amd64.tar.gz

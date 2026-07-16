@@ -32,7 +32,7 @@ The two are decoupled: **you build online once** (locally or in CI), and **consu
 - 🧬 **Multi-arch** — `linux/amd64` and `linux/arm64` published together; `docker pull` selects the variant matching your host.
 - 🔐 **SSH-native** — an `sshd` on port 22 out of the box, so VS Code Remote-SSH, JetBrains Gateway, or a plain terminal all just connect.
 - 🪞 **UID/GID remapping** — [`run-ssh.sh`](scripts/run-ssh.sh) remaps the container user to your host UID/GID at runtime, so bind-mounted `~/.ssh` and `~/.claude` are owned correctly and writable immediately.
-- 💾 **Bare-metal restore** — unpack your whole home onto any Ubuntu host. Restore as the packaged `charles`, or **into your own login user** with `CURRENT_USER=1`.
+- 💾 **Bare-metal restore** — one plain-bash entry point (`scripts/restore.sh`, no `make`/`git` needed) that downloads the Release bundle or consumes a local archive, as the packaged `charles` or **into your own login user** (`--current-user`).
 - 🛡 **Fail-fast compatibility** — the restore step refuses incompatible hosts (non-Ubuntu/Debian, or glibc below the build's `2.39`) *before* you end up with silently broken binaries.
 - ♻️ **Auto-rebuild on dotfiles** — a push to your dotfiles repo can trigger the devbox CI via `repository_dispatch`, busting the cache from the chezmoi step onward.
 
@@ -50,7 +50,7 @@ The two are decoupled: **you build online once** (locally or in CI), and **consu
       ▼  make package
   charles_home_<profile>_<arch>.tar.gz             ← the whole initialized home
       │
-      ▼  make restore   (target: Ubuntu ≥ 24.04 · glibc ≥ 2.39)
+      ▼  restore.sh   (target: Ubuntu ≥ 24.04 · glibc ≥ 2.39)
   /home/<user>  →  su - <user>  →  ready, no network needed
 ```
 
@@ -153,28 +153,59 @@ matching your profile and CPU arch (`uname -m` → `x86_64` = amd64, `aarch64` =
 | **mini** | `charles_home_mini_amd64.tar.gz` | `charles_home_mini_arm64.tar.gz` |
 | **extra** | `charles_home_extra_amd64.tar.gz` | `charles_home_extra_arm64.tar.gz` |
 
-```bash
-# Restore as the packaged user (creates `charles` if missing)
-sudo make restore FILE=charles_home_extra_amd64.tar.gz
+One entry point covers both cases — [`scripts/restore.sh`](scripts/restore.sh),
+plain bash with **no `make` or `git` required** on the target (minimal cloud
+images often lack both). `--file` decides the source:
 
-# Dry-run it safely inside a throwaway container instead
-make test FILE=charles_home_extra_amd64.tar.gz
+```bash
+# Online host — no --file: auto-detects your CPU arch, downloads the bundle
+# from the latest Release, then restores  (--profile extra by default)
+sudo ./scripts/restore.sh
+sudo ./scripts/restore.sh --profile mini --current-user
+
+# Offline host — --file: restore a local archive you carried over, no download
+sudo ./scripts/restore.sh --file charles_home_extra_amd64.tar.gz
+sudo ./scripts/restore.sh --file charles_home_extra_amd64.tar.gz --current-user
 ```
+
+Every flag also works as an environment variable (`CURRENT_USER=1`, `ARCHIVE_FILE=…`,
+`PROFILE=…`, `ASSUME_YES=1`, `SKIP_OS_CHECK=1` — flag wins); see `--help` for the
+full list. If you have `make`, the equivalent wrapper is:
+
+```bash
+sudo make restore                                          # download + restore
+sudo make restore FILE=charles_home_extra_amd64.tar.gz     # local archive
+make test FILE=charles_home_extra_amd64.tar.gz             # dry-run in Docker
+```
+
+No clone yet? Bootstrap everything in one line (needs only curl + tar):
+
+```bash
+curl -fsSL https://github.com/charles1614/devbox/archive/refs/heads/main.tar.gz | tar xz \
+  && cd devbox-main && sudo ./scripts/restore.sh --current-user
+```
+
+Download details: pin a release with `--version <tag>`; force a fresh download with
+`--force-download`. The downloaded archive is kept in the working directory, so a
+re-run skips the download. If APT can't reach the network during restore, the home
+directory is restored anyway (the bundle's tools are self-contained) — the missing
+system packages are listed for you to install later.
 
 > The restore refuses hosts older than the build (Ubuntu < 24.04 / glibc < 2.39),
 > because mise-managed binaries would fail with `GLIBC_x.yz not found`. Force past
 > it at your own risk with `SKIP_OS_CHECK=1`.
 
 <details>
-<summary><b>Restore into your own login user (<code>CURRENT_USER=1</code>)</b></summary>
+<summary><b>Restore into your own login user (<code>--current-user</code>)</b></summary>
 
 By default the environment restores to `charles`. To restore into the account
-you're already logged in as (e.g. `ubuntu` on a cloud VM), add `CURRENT_USER=1` —
+you're already logged in as (e.g. `ubuntu` on a cloud VM), add `--current-user` —
 the target user/UID/GID come from `SUDO_USER`/`SUDO_UID`/`SUDO_GID`:
 
 ```bash
-sudo make restore FILE=charles_home_extra_amd64.tar.gz CURRENT_USER=1
-# non-interactive:  add ASSUME_YES=1
+sudo ./scripts/restore.sh --current-user               # downloads, then restores
+sudo ./scripts/restore.sh -f <archive> --current-user  # local archive
+# non-interactive:  add --yes
 ```
 
 - **Overwrite guard** — restoring into a pre-existing home prompts before
@@ -216,8 +247,10 @@ All settings live in `config.env` (copy it from
 | `USERNAME` | Username baked into the environment. |
 | `USER_ID` · `GROUP_ID` | UID/GID for that user. |
 | `SETUP_SCRIPT_URL` | URL to the dotfiles setup script run during the build. |
-| `DOCKER_BASE_IMAGE` | Base image for local builds. |
-| `APT_PACKAGES` | Space-separated APT packages installed on top. |
+| `APT_PACKAGES` | Space-separated APT packages installed by the restore step. |
+
+> The Docker base image (`nvidia/cuda:13.1.0-devel-ubuntu24.04`) is fixed in
+> [`docker/Dockerfile`](docker/Dockerfile) — edit it there if you need a different base.
 
 <details>
 <summary><b>Auto-rebuild the image when your dotfiles change</b></summary>
@@ -256,7 +289,7 @@ dotfiles push → notify-devbox.yml → repository_dispatch → devbox CI rebuil
 | `make setup` | Create `config.env` from the example. |
 | `make prepare PROFILE=<mini\|extra>` | Build the image and start a container (`NO_CACHE=1` for a clean build). |
 | `make package FILE=<out.tar.gz>` | Package the initialized environment into an offline bundle. |
-| `make restore FILE=<archive>` | Restore onto an Ubuntu host — requires `sudo` (`CURRENT_USER=1`, `ASSUME_YES=1`, `SKIP_OS_CHECK=1`). |
+| `make restore [FILE=<archive>]` | Restore onto an Ubuntu host — requires `sudo`. With `FILE`: local archive (offline). Without: download from Releases (`PROFILE=`, `VERSION=`). Flags: `CURRENT_USER=1`, `ASSUME_YES=1`, `SKIP_OS_CHECK=1`. |
 | `make test FILE=<archive>` | Dry-run the restore inside an isolated Docker container. |
 | `make clean` | Remove containers, images, and temp files. |
 | `make workflow` | Run `setup` + `prepare` in sequence. |
@@ -271,6 +304,7 @@ scripts/
   prepare_online_env.sh     build image + start the init container
   package_offline_bundle.sh package the home dir into a .tar.gz
   restore_ubuntu_env.sh     restore on an Ubuntu host (CURRENT_USER-aware)
+  restore.sh                single restore entry point: download or --file, no make needed
   run-ssh.sh                run a container with UID/GID remap + SSH
   init_plugins.sh           install zsh/neovim plugins at build time
 tests/               isolated Docker restoration test
