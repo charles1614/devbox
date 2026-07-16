@@ -19,7 +19,8 @@ help:
 	@echo "  package   - Package the initialized environment into offline bundle"
 	@echo "             Output: FILE=charles_home.tar.gz (default)"
 	@echo "  restore   - Restore environment on Ubuntu system (requires sudo)"
-	@echo "             Requires: FILE=<path-to-tar.gz>"
+	@echo "             FILE=<tar.gz> restores a local archive (offline)"
+	@echo "             Without FILE, downloads from GitHub Releases (PROFILE, VERSION)"
 	@echo "             CURRENT_USER=1 restores into the invoking user (default: charles)"
 	@echo "  test      - Test Docker restoration process"
 	@echo "             Requires: FILE=<path-to-tar.gz>"
@@ -31,8 +32,8 @@ help:
 	@echo "  make prepare PROFILE=extra"
 	@echo "  make prepare PROFILE=mini NO_CACHE=1"
 	@echo "  make package FILE=charles_home_extra.tar.gz"
-	@echo "  sudo make restore FILE=charles_home_extra.tar.gz"
-	@echo "  sudo make restore FILE=charles_home_extra.tar.gz CURRENT_USER=1"
+	@echo "  sudo make restore FILE=charles_home_extra.tar.gz    # local archive (offline)"
+	@echo "  sudo make restore CURRENT_USER=1                    # auto-download latest"
 	@echo "  make test FILE=charles_home_extra.tar.gz"
 
 # Initial setup
@@ -60,18 +61,14 @@ package:
 	@echo "📦 Packaging offline bundle..."
 	@ARCHIVE_FILE=$(FILE) ./scripts/package_offline_bundle.sh
 
-# Restore environment (requires sudo)
-# Usage: sudo make restore FILE=charles_home_extra.tar.gz
-#   Restore into your own login user instead of 'charles':
-#     sudo make restore FILE=<archive> CURRENT_USER=1 [ASSUME_YES=1]
-#   Bypass the OS/glibc check on older releases: SKIP_OS_CHECK=1
+# Restore environment (requires sudo) — thin wrapper over scripts/restore.sh,
+# which is the real entry point and needs no make:
+#   FILE given  → restore from a local archive (offline-friendly, no download)
+#   FILE absent → download the bundle matching this host's arch from GitHub
+#                 Releases first (PROFILE=mini|extra, VERSION=<tag>)
+# Common flags: CURRENT_USER=1 ASSUME_YES=1 SKIP_OS_CHECK=1
 restore:
-	@if [ -z "$(FILE)" ]; then \
-		echo "❌ FILE is required. Usage: sudo make restore FILE=charles_home_extra.tar.gz"; \
-		exit 1; \
-	fi
-	@echo "🔄 Restoring from $(FILE)..."
-	@ARCHIVE_FILE=$(FILE) CURRENT_USER=$(CURRENT_USER) ASSUME_YES=$(ASSUME_YES) SKIP_OS_CHECK=$(SKIP_OS_CHECK) ./scripts/restore_ubuntu_env.sh
+	@ARCHIVE_FILE=$(FILE) PROFILE=$(PROFILE) VERSION=$(VERSION) CURRENT_USER=$(CURRENT_USER) ASSUME_YES=$(ASSUME_YES) SKIP_OS_CHECK=$(SKIP_OS_CHECK) ./scripts/restore.sh
 
 # Test Docker restoration
 # Usage: make test FILE=charles_home_extra.tar.gz

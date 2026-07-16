@@ -129,10 +129,13 @@ if ! apt-get update; then
     log_warning "APT 更新失败，可能存在网络问题或源配置不当。尝试继续安装..."
 fi
 
-# Install dependencies
+# Install dependencies. Failure is NOT fatal: on offline/air-gapped hosts the
+# home directory restore (the core of this script) still works — the bundle's
+# tools are self-contained. We warn and continue instead of aborting.
 log_info "正在安装 APT 依赖: ${APT_PACKAGES}..."
 if ! apt-get install -y --no-install-recommends ${APT_PACKAGES}; then
-    error_exit "APT 依赖安装失败"
+    log_warning "APT 依赖安装失败 (离线环境或源不可用)。继续恢复家目录。"
+    log_warning "联网后可手动补装: apt-get install -y --no-install-recommends ${APT_PACKAGES}"
 fi
 
 # Create symlink for fd-find
