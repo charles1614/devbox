@@ -20,6 +20,7 @@ help:
 	@echo "             Output: FILE=charles_home.tar.gz (default)"
 	@echo "  restore   - Restore environment on Ubuntu system (requires sudo)"
 	@echo "             Requires: FILE=<path-to-tar.gz>"
+	@echo "             CURRENT_USER=1 restores into the invoking user (default: charles)"
 	@echo "  test      - Test Docker restoration process"
 	@echo "             Requires: FILE=<path-to-tar.gz>"
 	@echo "  clean     - Clean up temporary files and containers"
@@ -31,6 +32,7 @@ help:
 	@echo "  make prepare PROFILE=mini NO_CACHE=1"
 	@echo "  make package FILE=charles_home_extra.tar.gz"
 	@echo "  sudo make restore FILE=charles_home_extra.tar.gz"
+	@echo "  sudo make restore FILE=charles_home_extra.tar.gz CURRENT_USER=1"
 	@echo "  make test FILE=charles_home_extra.tar.gz"
 
 # Initial setup
@@ -60,13 +62,16 @@ package:
 
 # Restore environment (requires sudo)
 # Usage: sudo make restore FILE=charles_home_extra.tar.gz
+#   Restore into your own login user instead of 'charles':
+#     sudo make restore FILE=<archive> CURRENT_USER=1 [ASSUME_YES=1]
+#   Bypass the OS/glibc check on older releases: SKIP_OS_CHECK=1
 restore:
 	@if [ -z "$(FILE)" ]; then \
 		echo "❌ FILE is required. Usage: sudo make restore FILE=charles_home_extra.tar.gz"; \
 		exit 1; \
 	fi
 	@echo "🔄 Restoring from $(FILE)..."
-	@ARCHIVE_FILE=$(FILE) ./scripts/restore_ubuntu_env.sh
+	@ARCHIVE_FILE=$(FILE) CURRENT_USER=$(CURRENT_USER) ASSUME_YES=$(ASSUME_YES) SKIP_OS_CHECK=$(SKIP_OS_CHECK) ./scripts/restore_ubuntu_env.sh
 
 # Test Docker restoration
 # Usage: make test FILE=charles_home_extra.tar.gz
