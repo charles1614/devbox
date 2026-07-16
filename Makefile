@@ -6,7 +6,7 @@
 # Build profile for Docker image (mini or extra)
 PROFILE ?= extra
 
-.PHONY: help prepare package restore test clean setup
+.PHONY: help prepare package restore test clean setup workflow
 
 # Default target
 help:
@@ -80,18 +80,16 @@ test:
 	@echo "🧪 Testing restoration from $(FILE)..."
 	@ARCHIVE_FILE=$(FILE) ./tests/test_docker_restore.sh
 
-# Clean up
+# Clean up — container/image names derive from USERNAME in config.env
+# (falling back to 'charles'), matching what the scripts actually create.
 clean:
 	@echo "🧹 Cleaning up..."
-	@docker stop manual_init_container_charles 2>/dev/null || true
-	@docker rm manual_init_container_charles 2>/dev/null || true
-	@docker stop test_offline_charles 2>/dev/null || true
-	@docker rm test_offline_charles 2>/dev/null || true
-	@docker rmi env-for-manual-init:charles 2>/dev/null || true
-	@docker rmi offline-machine-base:charles 2>/dev/null || true
-	@rm -f original_setup.sh
-	@rm -f Dockerfile.restore
-	@rm -rf charles_home_temp
+	@U=$${USERNAME:-$$([ -f config.env ] && . ./config.env; echo $${USERNAME:-charles})}; \
+	docker stop manual_init_container_$$U test_offline_$$U 2>/dev/null || true; \
+	docker rm manual_init_container_$$U test_offline_$$U 2>/dev/null || true; \
+	docker rmi env-for-manual-init:$$U offline-machine-base:$$U 2>/dev/null || true; \
+	rm -f original_setup.sh Dockerfile.restore; \
+	rm -rf $${U}_home_temp
 	@echo "✅ Cleanup completed"
 
 # Full workflow

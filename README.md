@@ -247,8 +247,10 @@ All settings live in `config.env` (copy it from
 | `USERNAME` | Username baked into the environment. |
 | `USER_ID` · `GROUP_ID` | UID/GID for that user. |
 | `SETUP_SCRIPT_URL` | URL to the dotfiles setup script run during the build. |
-| `DOCKER_BASE_IMAGE` | Base image for local builds. |
-| `APT_PACKAGES` | Space-separated APT packages installed on top. |
+| `APT_PACKAGES` | Space-separated APT packages installed by the restore step. |
+
+> The Docker base image (`nvidia/cuda:13.1.0-devel-ubuntu24.04`) is fixed in
+> [`docker/Dockerfile`](docker/Dockerfile) — edit it there if you need a different base.
 
 <details>
 <summary><b>Auto-rebuild the image when your dotfiles change</b></summary>

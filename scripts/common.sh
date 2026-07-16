@@ -157,34 +157,51 @@ safe_remove() {
 # --- Configuration loading ---
 load_config() {
     local config_file="config.env"
-    # Try to find config.env in current directory or parent directory
+    # Repo root, resolved relative to this file — makes config loading work no
+    # matter which directory the calling script is invoked from (e.g. sudo from
+    # elsewhere, or the curl-bootstrap flow).
+    local repo_root
+    repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    # Precedence: current directory (explicit local override) > parent > repo root
     if [ -f "$config_file" ]; then
         log_info "加载配置文件: $config_file"
         source "$config_file"
     elif [ -f "../$config_file" ]; then
         log_info "加载配置文件: ../$config_file"
         source "../$config_file"
+    elif [ -f "${repo_root}/${config_file}" ]; then
+        log_info "加载配置文件: ${repo_root}/${config_file}"
+        source "${repo_root}/${config_file}"
     else
         log_warning "未找到配置文件 $config_file，使用默认值"
     fi
 }
 
 # --- Environment setup ---
+# Precedence: environment variable > config.env > built-in default.
+# Env-first keeps one-off overrides working as documented, e.g.:
+#   USERNAME=ubuntu USER_ID=1001 make prepare
 setup_environment() {
     # Set strict error handling
     set -eo pipefail
-    
+
+    # Snapshot env values BEFORE sourcing config.env, so they win over it
+    local env_username="${USERNAME:-}"
+    local env_user_id="${USER_ID:-}"
+    local env_group_id="${GROUP_ID:-}"
+    local env_setup_script_url="${SETUP_SCRIPT_URL:-}"
+    local env_apt_packages="${APT_PACKAGES:-}"
+    local env_docker_dir="${DOCKER_DIR:-}"
+
     # Load configuration
     load_config
-    
-    # Export default values if not set
-    export USERNAME="${USERNAME:-$DEFAULT_USERNAME}"
-    export USER_ID="${USER_ID:-$DEFAULT_USER_ID}"
-    export GROUP_ID="${GROUP_ID:-$DEFAULT_GROUP_ID}"
-    export SETUP_SCRIPT_URL="${SETUP_SCRIPT_URL:-$DEFAULT_SETUP_SCRIPT_URL}"
-    export APT_PACKAGES="${APT_PACKAGES:-build-essential git curl unzip jq libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev libncurses5-dev libffi-dev zsh bat ripgrep fd-find}"
-    export SCRIPTS_DIR="${SCRIPTS_DIR:-scripts}"
-    export TESTS_DIR="${TESTS_DIR:-tests}"
-    export DOCKER_DIR="${DOCKER_DIR:-docker}"
+
+    # Export: env value if given, else config.env value, else default
+    export USERNAME="${env_username:-${USERNAME:-$DEFAULT_USERNAME}}"
+    export USER_ID="${env_user_id:-${USER_ID:-$DEFAULT_USER_ID}}"
+    export GROUP_ID="${env_group_id:-${GROUP_ID:-$DEFAULT_GROUP_ID}}"
+    export SETUP_SCRIPT_URL="${env_setup_script_url:-${SETUP_SCRIPT_URL:-$DEFAULT_SETUP_SCRIPT_URL}}"
+    export APT_PACKAGES="${env_apt_packages:-${APT_PACKAGES:-build-essential git curl unzip jq libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev libncurses5-dev libffi-dev zsh bat ripgrep fd-find}}"
+    export DOCKER_DIR="${env_docker_dir:-${DOCKER_DIR:-docker}}"
     export ARCHIVE_FILE="${ARCHIVE_FILE:-}"
 } 

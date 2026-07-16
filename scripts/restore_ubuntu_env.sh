@@ -76,7 +76,7 @@ readonly INPUT_ARCHIVE="${ARCHIVE_FILE}"
 
 # --- Main logic ---
 log_info "步骤 1: 环境检查"
-# validate_sudo
+validate_sudo
 validate_file_exists "${INPUT_ARCHIVE}" "离线包"
 validate_os_compatibility
 log_success "环境检查通过。归档文件: ${INPUT_ARCHIVE}"

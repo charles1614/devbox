@@ -85,6 +85,11 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# ---------- root check (before any download — fail early, not after 2 GB) ------
+if [ "$(id -u)" -ne 0 ]; then
+    error_exit "恢复需要 root 权限 (创建用户/APT/chown)。请使用 sudo 重新运行。"
+fi
+
 # ---------- download when no local archive was given ---------------------------
 if [ -z "${ARCHIVE_FILE}" ]; then
     case "${PROFILE}" in
