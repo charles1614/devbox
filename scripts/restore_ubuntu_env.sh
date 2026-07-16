@@ -10,8 +10,63 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/common.sh"
 
+# ------------------------------------------------------------------------------
+# CURRENT_USER mode helpers
+# By default the environment is restored to the packaged user (charles). Set
+# CURRENT_USER=1 to restore into the account that invoked the script instead —
+# the common "restore onto my own cloud VM user" case. Under sudo the real user
+# is taken from SUDO_USER/SUDO_UID/SUDO_GID; otherwise from `id`.
+# ------------------------------------------------------------------------------
+resolve_current_user() {
+    local name uid gid
+    if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
+        name="${SUDO_USER}"
+        uid="${SUDO_UID:-$(id -u "${name}" 2>/dev/null)}"
+        gid="${SUDO_GID:-$(id -g "${name}" 2>/dev/null)}"
+    elif [ "$(id -u)" -ne 0 ]; then
+        name="$(id -un)"
+        uid="$(id -u)"
+        gid="$(id -g)"
+    else
+        error_exit "CURRENT_USER=1 无法确定目标用户：请通过 'sudo' 从你的普通用户账户运行，或改用显式的 USERNAME/USER_ID/GROUP_ID 配置。"
+    fi
+    export USERNAME="${name}"
+    export USER_ID="${uid}"
+    export GROUP_ID="${gid}"
+}
+
+# Guard before overwriting an EXISTING account's home (protects real users).
+confirm_overwrite_home() {
+    local home="/home/${USERNAME}"
+    log_warning "目标用户 '${USERNAME}' 及其家目录 '${home}' 已存在。"
+    log_warning "恢复会用离线包中的同名文件覆盖现有配置 (如 .bashrc/.zshrc/.config)，并把登录 Shell 改为 zsh。"
+    log_warning "为防止 SSH 锁定，归档中的 .ssh 目录会被跳过，现有 SSH 密钥保持不变。"
+    if [ "${ASSUME_YES:-0}" = "1" ]; then
+        log_info "ASSUME_YES=1 — 跳过交互确认。"
+        return 0
+    fi
+    if [ ! -t 0 ]; then
+        error_exit "非交互式运行且未设置 ASSUME_YES=1；为避免误覆盖现有家目录已中止。确认无误后加 ASSUME_YES=1 重试。"
+    fi
+    local reply=""
+    read -r -p "确认继续覆盖 '${home}' 吗? [y/N] " reply
+    case "${reply}" in
+        y|Y|yes|YES) : ;;
+        *) error_exit "已取消。" ;;
+    esac
+}
+
 # --- Configuration ---
 setup_environment
+
+# Optional: retarget to the invoking user (default stays charles).
+case "${CURRENT_USER:-0}" in
+    1|true|TRUE|yes|YES|on|ON)
+        resolve_current_user
+        log_info "CURRENT_USER 模式：恢复目标为当前用户 '${USERNAME}' (UID=${USER_ID}, GID=${GROUP_ID})"
+        log_warning "若离线包不是为 '${USERNAME}' 构建的 (默认包为 charles)，源码编译的工具 (如 mise 的 Python) 会因内嵌的 '/home/<用户>' 绝对路径而无法运行；建议使用为 '${USERNAME}' 构建的离线包 (${USERNAME}_home_*.tar.gz)。"
+        ;;
+esac
 
 # File configuration — ARCHIVE_FILE must be provided
 if [[ -z "${ARCHIVE_FILE}" ]]; then
@@ -27,6 +82,14 @@ validate_os_compatibility
 log_success "环境检查通过。归档文件: ${INPUT_ARCHIVE}"
 
 log_info "步骤 2: 检查并创建用户和组"
+# Record whether the target user already existed BEFORE we create it, so we can
+# guard against clobbering a real account's home (and SSH keys) at extraction.
+if id -u "${USERNAME}" &> /dev/null; then
+    USER_PREEXISTED=1
+else
+    USER_PREEXISTED=0
+fi
+
 # Create group if it doesn't exist
 if ! getent group "${USERNAME}" &> /dev/null; then
     log_info "创建组 '${USERNAME}'..."
@@ -83,8 +146,16 @@ fi
 log_success "APT 依赖安装完成。"
 
 log_info "步骤 4: 复制并还原家目录"
+# Build extraction options. When restoring into a pre-existing account, confirm
+# first and skip the archive's .ssh so existing SSH keys are never overwritten.
+tar_opts=(-xzvf "${INPUT_ARCHIVE}" -C "/home/${USERNAME}/" --strip-components=1)
+if [ "${USER_PREEXISTED:-0}" = "1" ]; then
+    confirm_overwrite_home
+    tar_opts+=(--exclude='./.ssh' --exclude='./.ssh/*')
+    log_info "已存在的账户：解压时跳过归档内的 .ssh 目录，保留现有 SSH 密钥。"
+fi
 log_info "正在解压家目录归档 '${INPUT_ARCHIVE}' 到 '/home/${USERNAME}/'..."
-if ! tar -xzvf "${INPUT_ARCHIVE}" -C "/home/${USERNAME}/" --strip-components=1; then
+if ! tar "${tar_opts[@]}"; then
     error_exit "家目录解压失败"
 fi
 log_success "家目录已解压。"

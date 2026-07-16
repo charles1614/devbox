@@ -1,51 +1,122 @@
-# Devbox: Portable Development Environment
+<div align="center">
 
-A solution for creating, packaging, and restoring portable development environments. Prepare a customized environment online, package it into an offline bundle, and restore it on any Ubuntu system or Docker container.
+# 📦 Devbox
 
-## Quick Start from GHCR
+#### Prepare a development environment once — then pull it as a ready-to-use image, or restore your whole home directory onto any Ubuntu box.
 
-Pre-built images are published to GHCR automatically on every push to `main`. Images are multi-arch (`linux/amd64` and `linux/arm64`); `docker pull` selects the variant matching your host. Two profiles are available:
+[![GHCR](https://img.shields.io/badge/GHCR-devbox-2496ED?logo=docker&logoColor=white)](https://github.com/charles1614/devbox/pkgs/container/devbox)
+[![Multi-arch](https://img.shields.io/badge/arch-amd64_·_arm64-4c1)](#-quick-start)
+[![Ubuntu 24.04](https://img.shields.io/badge/Ubuntu-24.04-E95420?logo=ubuntu&logoColor=white)](https://releases.ubuntu.com/24.04/)
+[![CUDA 13.1](https://img.shields.io/badge/CUDA-13.1--devel-76B900?logo=nvidia&logoColor=white)](https://hub.docker.com/r/nvidia/cuda)
+[![mise](https://img.shields.io/badge/mise-managed-fb923c)](https://mise.jdx.dev/)
+[![Neovim](https://img.shields.io/badge/Neovim-lazy.nvim-57A143?logo=neovim&logoColor=white)](https://neovim.io/)
+[![zsh](https://img.shields.io/badge/zsh-zinit_·_starship-89e051)](https://starship.rs/)
 
-| Profile | Tools |
-|---------|-------|
-| **mini** | python, uv, neovim, fzf, zoxide, chezmoi, zellij, starship, jq, ripgrep, fd |
-| **extra** | everything in mini + node.js, go, rust, eza, lazygit, delta, bat, dust, yazi, btop, procs, tealdeer, xh, gping, llvm/clang |
+[Quick start](#-quick-start) · [How it works](#-how-it-works) · [Profiles](#-profiles) · [SSH](#-ssh-access) · [Restore](#-restore) · [Build](#-build-locally) · [Configuration](#-configuration)
+
+</div>
+
+---
+
+**Devbox** is two halves of one pipeline:
+
+- 🐳 **A reproducible Docker image** — `mise` tools, `zinit` shell plugins, a `starship` prompt, and `lazy.nvim` Neovim plugins are all installed *at build time*, then published multi-arch to **GHCR**. `docker pull` and you have a shell that's ready on the first prompt.
+- 📦 **A portable offline bundle** — the fully-initialized home directory, packaged to a single `.tar.gz` and restorable onto any Ubuntu host or container, with no network fetches at restore time.
+
+The two are decoupled: **you build online once** (locally or in CI), and **consume offline anywhere** — pull the image, or lay the home archive down on bare metal. New tools are baked in at build; restoring never re-downloads them.
+
+## ✨ Features
+
+- ⚡ **Ready on the first prompt** — every tool, plugin, and prompt is pre-installed during the image build. No `mise install`, no plugin sync, no first-run wait.
+- 🎛 **Two profiles** — `mini` for a lean core, `extra` for the full toolbox (languages + modern CLIs). Pick per pull.
+- 🧬 **Multi-arch** — `linux/amd64` and `linux/arm64` published together; `docker pull` selects the variant matching your host.
+- 🔐 **SSH-native** — an `sshd` on port 22 out of the box, so VS Code Remote-SSH, JetBrains Gateway, or a plain terminal all just connect.
+- 🪞 **UID/GID remapping** — [`run-ssh.sh`](scripts/run-ssh.sh) remaps the container user to your host UID/GID at runtime, so bind-mounted `~/.ssh` and `~/.claude` are owned correctly and writable immediately.
+- 💾 **Bare-metal restore** — unpack your whole home onto any Ubuntu host. Restore as the packaged `charles`, or **into your own login user** with `CURRENT_USER=1`.
+- 🛡 **Fail-fast compatibility** — the restore step refuses incompatible hosts (non-Ubuntu/Debian, or glibc below the build's `2.39`) *before* you end up with silently broken binaries.
+- ♻️ **Auto-rebuild on dotfiles** — a push to your dotfiles repo can trigger the devbox CI via `repository_dispatch`, busting the cache from the chezmoi step onward.
+
+## 🏗 How it works
+
+```
+  docker/Dockerfile  (CUDA 13.1-devel · Ubuntu 24.04)
+      │
+      ▼  make prepare  /  CI                build image + run the dotfiles setup
+  mise tools · zinit · starship · lazy.nvim        ← baked into /home/<user>
+      │
+      ├──▶  GHCR    ghcr.io/charles1614/devbox:{mini,extra}-latest   (amd64 + arm64)
+      │              docker pull → run → SSH in → ready
+      │
+      ▼  make package
+  charles_home_<profile>_<arch>.tar.gz             ← the whole initialized home
+      │
+      ▼  make restore   (target: Ubuntu ≥ 24.04 · glibc ≥ 2.39)
+  /home/<user>  →  su - <user>  →  ready, no network needed
+```
+
+The image is the *fast path*; the home archive is the *portable path* for hosts where you'd rather not run a container.
+
+## 🚀 Quick start
+
+> **Prerequisites** — [Docker](https://docs.docker.com/get-docker/). Pre-built,
+> multi-arch images are published to GHCR on every push to `main`.
 
 ```bash
-# Pull the image
-docker pull ghcr.io/charles1614/devbox:mini-latest
-# or
+# Pull a profile (mini or extra)
 docker pull ghcr.io/charles1614/devbox:extra-latest
 
-# Run interactive shell (ready to use immediately)
+# Interactive shell — ready to use immediately
 docker run -it ghcr.io/charles1614/devbox:extra-latest
 
-# Or run in the background with SSH exposed on port 2222
+# …or run in the background with SSH exposed on 2222
 docker run -d -p 2222:22 --name devbox ghcr.io/charles1614/devbox:extra-latest
-ssh -p 2222 charles@localhost   # default password: devbox
+ssh -p 2222 charles@localhost          # default password: devbox
 ```
 
-All tools (managed by mise), shell plugins (zinit), starship prompt, and neovim plugins (lazy.nvim) are pre-installed during the image build. No manual initialization is needed.
+All tools (mise), shell plugins (zinit), the starship prompt, and Neovim plugins
+(lazy.nvim) are already installed in the image — no initialization needed.
 
-## SSH into the Container
+## 🎛 Profiles
 
-The image runs an SSH daemon on port 22 automatically. This lets you connect with any SSH client (terminal, VS Code Remote-SSH, JetBrains Gateway, etc.) instead of using `docker exec`.
+| Profile | Tools |
+| --- | --- |
+| **mini** | python · uv · neovim · fzf · zoxide · chezmoi · zellij · starship · jq · ripgrep · fd |
+| **extra** | everything in **mini** + node.js · go · rust · eza · lazygit · delta · bat · dust · yazi · btop · procs · tealdeer · xh · gping · llvm/clang |
 
-### Quick start
+Both profiles ship for `amd64` and `arm64`. Tags: `mini-latest`, `extra-latest`
+(and per-commit `mini-<sha>` / `extra-<sha>`).
+
+## 🔐 SSH access
+
+The image runs `sshd` on port 22 automatically, so you can connect with any SSH
+client instead of `docker exec`.
 
 ```bash
-# Run with port 22 published to a local port (e.g. 2222)
 docker run -d -p 2222:22 --name devbox ghcr.io/charles1614/devbox:extra-latest
-
-# SSH in (default password: devbox)
-ssh -p 2222 charles@localhost
+ssh -p 2222 charles@localhost          # default password: devbox
 ```
 
-> The default SSH password is **`devbox`**. For local builds you can override it by passing a Docker build secret named `ssh_password` (see [Build Locally](#build-locally)).
+> The default SSH password is **`devbox`**. For local builds, override it by
+> passing a Docker build secret named `ssh_password` (see [Build locally](#-build-locally)).
 
-### VS Code Remote-SSH
+<details>
+<summary><b>Correct UID/GID + auto-mounted volumes (<code>run-ssh.sh</code>)</b></summary>
 
-Add an entry to your `~/.ssh/config`:
+The image is built with a fixed username/UID. [`run-ssh.sh`](scripts/run-ssh.sh)
+remaps it to the host user at runtime so bind-mounts line up with no permission
+dance. It auto-mounts `~/.ssh` (read-only) and `~/.claude` when present.
+
+```bash
+./scripts/run-ssh.sh --uid 1001 --gid 1001
+./scripts/run-ssh.sh -v ~/projects:/home/charles/projects -v ~/data:/data:ro
+ssh -p 2222 charles@localhost
+```
+</details>
+
+<details>
+<summary><b>VS Code Remote-SSH</b></summary>
+
+Add an entry to `~/.ssh/config`:
 
 ```
 Host devbox
@@ -54,130 +125,107 @@ Host devbox
     User charles
 ```
 
-Then open the **Remote-SSH** extension and connect to `devbox`.
+Then connect to `devbox` from the **Remote-SSH** extension.
+</details>
 
-### Change the password inside the container
-
-```bash
-passwd
-```
-
-### Using a public key (recommended)
+<details>
+<summary><b>Use a public key (recommended)</b></summary>
 
 ```bash
-# Copy your public key into the running container
 ssh-copy-id -p 2222 charles@localhost
-
-# Or manually
+# or manually
 docker exec devbox bash -c "mkdir -p ~/.ssh && echo '$(cat ~/.ssh/id_ed25519.pub)' >> ~/.ssh/authorized_keys && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys"
 ```
 
-Once a key is installed, password authentication is no longer required.
+Once a key is installed, password auth is no longer required. Change the password
+inside the container with `passwd`.
+</details>
 
-## Download Offline Bundle
+## 💾 Restore
 
-Pre-built home directory archives are available on the [Releases](https://github.com/charles1614/devbox/releases) page. Pick the file matching your profile and CPU architecture (`uname -m` → `x86_64` = amd64, `aarch64` = arm64):
+For hosts where you'd rather run natively than in a container, restore the
+packaged home directory straight onto the machine. Pre-built archives live on the
+[Releases](https://github.com/charles1614/devbox/releases) page — pick the one
+matching your profile and CPU arch (`uname -m` → `x86_64` = amd64, `aarch64` = arm64):
 
 | Profile | amd64 | arm64 |
-|---------|-------|-------|
+| --- | --- | --- |
 | **mini** | `charles_home_mini_amd64.tar.gz` | `charles_home_mini_arm64.tar.gz` |
 | **extra** | `charles_home_extra_amd64.tar.gz` | `charles_home_extra_arm64.tar.gz` |
 
-## Build Locally
-
-If you prefer to build the image yourself instead of pulling from GHCR:
-
 ```bash
-# Clone the repository
-git clone git@github.com:charles1614/devbox.git
-cd devbox
-
-# Set up configuration
-make setup
-# Edit config.env with your settings
-
-# Build and start container
-make prepare PROFILE=extra
-# Use NO_CACHE=1 for a clean rebuild: make prepare PROFILE=extra NO_CACHE=1
-```
-
-This will build a Docker image and start a container. Then package the environment:
-
-```bash
-# Package into offline bundle
-make package FILE=charles_home_extra.tar.gz
-```
-
-## Restore
-
-Download the archive from [Releases](https://github.com/charles1614/devbox/releases), then:
-
-**On Ubuntu system:**
-```bash
+# Restore as the packaged user (creates `charles` if missing)
 sudo make restore FILE=charles_home_extra_amd64.tar.gz
-# or the arm64 / mini variant, e.g.
-sudo make restore FILE=charles_home_mini_arm64.tar.gz
-```
 
-**Test in Docker:**
-```bash
+# Dry-run it safely inside a throwaway container instead
 make test FILE=charles_home_extra_amd64.tar.gz
 ```
 
-## Project Structure
+> The restore refuses hosts older than the build (Ubuntu < 24.04 / glibc < 2.39),
+> because mise-managed binaries would fail with `GLIBC_x.yz not found`. Force past
+> it at your own risk with `SKIP_OS_CHECK=1`.
 
-```
-devbox/
-├── .github/workflows/  CI/CD (build, publish to GHCR, release archives)
-├── docker/             Dockerfile
-├── scripts/
-│   ├── common.sh                 Shared utilities and configuration
-│   ├── init_plugins.sh           Auto-install zsh/neovim plugins during build
-│   ├── prepare_online_env.sh     Prepare online environment
-│   ├── package_offline_bundle.sh Package into offline bundle
-│   └── restore_ubuntu_env.sh     Restore on Ubuntu system
-├── tests/              Docker restoration tests
-├── config.env.example  Configuration template
-└── Makefile            All commands
-```
+<details>
+<summary><b>Restore into your own login user (<code>CURRENT_USER=1</code>)</b></summary>
 
-## Configuration
+By default the environment restores to `charles`. To restore into the account
+you're already logged in as (e.g. `ubuntu` on a cloud VM), add `CURRENT_USER=1` —
+the target user/UID/GID come from `SUDO_USER`/`SUDO_UID`/`SUDO_GID`:
 
 ```bash
-cp config.env.example config.env
+sudo make restore FILE=charles_home_extra_amd64.tar.gz CURRENT_USER=1
+# non-interactive:  add ASSUME_YES=1
 ```
 
-| Option | Description |
-|--------|-------------|
-| `USERNAME` | Username for the environment |
-| `USER_ID` / `GROUP_ID` | UID/GID for the user |
-| `SETUP_SCRIPT_URL` | URL to your dotfiles setup script |
-| `DOCKER_BASE_IMAGE` | Base Docker image (default: `ubuntu:22.04`) |
-| `APT_PACKAGES` | Space-separated list of APT packages to install |
+- **Overwrite guard** — restoring into a pre-existing home prompts before
+  overwriting dotfiles and switching the login shell to zsh. The archive's `.ssh`
+  is always skipped in this case, so existing keys are never clobbered (no lockout).
+- **Match the username** — source-compiled tools (notably mise's Python) bake the
+  build-time home path into their binaries, so a `charles` bundle may fail under a
+  different username. For a fully-clean restore, build a bundle for your user:
+  ```bash
+  USERNAME=ubuntu USER_ID=1001 GROUP_ID=1001 make prepare PROFILE=extra
+  make package FILE=ubuntu_home_extra_amd64.tar.gz
+  ```
+  Prebuilt static tools (ripgrep, fd, starship, eza, neovim) work regardless.
+</details>
 
-## Workflow Commands
+## 🛠 Build locally
 
-| Command | Description |
-|---------|-------------|
-| `make setup` | Create `config.env` from example |
-| `make prepare PROFILE=<mini\|extra>` | Build image and start container |
-| `make package FILE=<output.tar.gz>` | Package initialized environment into offline bundle |
-| `make restore FILE=<archive.tar.gz>` | Restore environment on Ubuntu system (requires sudo) |
-| `make test FILE=<archive.tar.gz>` | Test Docker restoration |
-| `make clean` | Clean up containers, images, and temp files |
-| `make workflow` | Run setup + prepare in sequence |
+Prefer to build the image yourself instead of pulling from GHCR:
 
-## Auto-rebuild on Dotfiles Changes
+```bash
+git clone git@github.com:charles1614/devbox.git && cd devbox
 
-The devbox CI supports automatic rebuilds when your [dotfiles repo](https://github.com/charles1614/dotfiles) is updated, via GitHub's `repository_dispatch`. When triggered this way, the Docker cache is busted from the chezmoi step onward so the latest dotfiles are always picked up.
+make setup                             # create config.env from the example
+# …edit config.env with your settings…
 
-### Setup
+make prepare PROFILE=extra             # build image + start a container
+# NO_CACHE=1 for a clean rebuild:  make prepare PROFILE=extra NO_CACHE=1
 
-1. **Create a Personal Access Token (PAT)** — GitHub > Settings > Developer settings > Personal access tokens. Use a classic token with `repo` scope, or a fine-grained token with `contents: write` on `charles1614/devbox`.
+make package FILE=charles_home_extra.tar.gz   # package the initialized home
+```
 
-2. **Add the PAT as a secret** — Go to `charles1614/dotfiles` > Settings > Secrets and variables > Actions > New repository secret. Name it `DEVBOX_PAT`.
+## 🔧 Configuration
 
-3. **Add a workflow in the dotfiles repo** — Create `.github/workflows/notify-devbox.yml`:
+All settings live in `config.env` (copy it from
+[`config.env.example`](config.env.example) via `make setup`).
+
+| Variable | Description |
+| --- | --- |
+| `USERNAME` | Username baked into the environment. |
+| `USER_ID` · `GROUP_ID` | UID/GID for that user. |
+| `SETUP_SCRIPT_URL` | URL to the dotfiles setup script run during the build. |
+| `DOCKER_BASE_IMAGE` | Base image for local builds. |
+| `APT_PACKAGES` | Space-separated APT packages installed on top. |
+
+<details>
+<summary><b>Auto-rebuild the image when your dotfiles change</b></summary>
+
+The CI listens for `repository_dispatch`, so a push to your
+[dotfiles repo](https://github.com/charles1614/dotfiles) can rebuild the image
+(cache busted from the chezmoi step onward). Add a `DEVBOX_PAT` secret to the
+dotfiles repo and a workflow that POSTs to the devbox `dispatches` endpoint:
 
 ```yaml
 name: Notify devbox
@@ -196,12 +244,43 @@ jobs:
             -d '{"event_type":"dotfiles-updated","client_payload":{"timestamp":"'"$(date +%s)"'"}}'
 ```
 
-### Flow
+```
+dotfiles push → notify-devbox.yml → repository_dispatch → devbox CI rebuilds
+```
+</details>
+
+## 🧰 Workflow commands
+
+| Command | Description |
+| --- | --- |
+| `make setup` | Create `config.env` from the example. |
+| `make prepare PROFILE=<mini\|extra>` | Build the image and start a container (`NO_CACHE=1` for a clean build). |
+| `make package FILE=<out.tar.gz>` | Package the initialized environment into an offline bundle. |
+| `make restore FILE=<archive>` | Restore onto an Ubuntu host — requires `sudo` (`CURRENT_USER=1`, `ASSUME_YES=1`, `SKIP_OS_CHECK=1`). |
+| `make test FILE=<archive>` | Dry-run the restore inside an isolated Docker container. |
+| `make clean` | Remove containers, images, and temp files. |
+| `make workflow` | Run `setup` + `prepare` in sequence. |
+
+## 🗂 Project structure
 
 ```
-dotfiles push → notify-devbox.yml → repository_dispatch → devbox CI rebuilds (cache busted)
+.github/workflows/   CI: multi-arch build → GHCR → package → Release
+docker/Dockerfile    CUDA 13.1-devel · Ubuntu 24.04 base + dev stage
+scripts/
+  common.sh                 shared utils, config, OS/glibc compatibility gate
+  prepare_online_env.sh     build image + start the init container
+  package_offline_bundle.sh package the home dir into a .tar.gz
+  restore_ubuntu_env.sh     restore on an Ubuntu host (CURRENT_USER-aware)
+  run-ssh.sh                run a container with UID/GID remap + SSH
+  init_plugins.sh           install zsh/neovim plugins at build time
+tests/               isolated Docker restoration test
+dotfiles/            chezmoi-managed dotfiles (submodule)
+config.env.example   configuration template
+Makefile             all workflow commands
 ```
 
-## Prerequisites
+## 🧱 Tech stack
 
-- **Docker** — for building, testing, and running environments
+**Docker** (multi-arch buildx) · **NVIDIA CUDA 13.1-devel** on **Ubuntu 24.04** ·
+**mise** (tool manager) · **zsh** + **zinit** · **starship** · **Neovim** +
+**lazy.nvim** · **chezmoi** dotfiles · **OpenSSH** · **GitHub Actions** → **GHCR** + Releases.
