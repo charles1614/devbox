@@ -2,8 +2,14 @@
 
 # ==============================================================================
 # Script: Test Docker Restoration
-# Safely tests the restore script by running it inside a Docker container.
-# This approach completely isolates the test environment from the host system.
+# Runs the REAL restore script (scripts/restore_ubuntu_env.sh) inside an
+# isolated Ubuntu 24.04 container — the same OS the bundle is built on — so
+# the test exercises exactly what runs on a target host.
+#
+# Env:
+#   ARCHIVE_FILE=<tar.gz>   Offline bundle to test (required)
+#   RESTORE_TIMEOUT=<sec>   Max seconds to wait for the in-container restore
+#                           (default: 900 — APT install needs network time)
 # ==============================================================================
 
 # Source common utilities
@@ -23,6 +29,8 @@ readonly DOCKERFILE_RESTORE="Dockerfile.restore"
 readonly BASE_IMAGE_NAME="offline-machine-base:${USERNAME}"
 readonly CONTAINER_NAME="test_offline_${USERNAME}"
 readonly INPUT_ARCHIVE="${ARCHIVE_FILE}"
+readonly RESTORE_TIMEOUT="${RESTORE_TIMEOUT:-900}"
+readonly SUCCESS_MARKER="RESTORE_TEST_OK"
 
 # --- Cleanup function ---
 cleanup() {
@@ -50,58 +58,25 @@ log_success "环境检查通过。"
 # Clean up any existing containers/images before starting
 pre_cleanup
 
-log_info "步骤 2: 创建安全的测试Docker环境"
+log_info "步骤 2: 创建测试镜像 (Ubuntu 24.04 — 与离线包构建环境一致)"
 cat <<EOF > "${DOCKERFILE_RESTORE}"
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install essential packages during build to avoid network issues at runtime
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    sudo \
-    zsh \
-    neovim \
-    build-essential \
-    git \
-    curl \
+# Only ca-certificates — the restore script installs everything else itself;
+# that installation path is part of what this test verifies.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \\
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the restore script and archive
-COPY scripts/restore_ubuntu_env.sh /workspace/restore_ubuntu_env.sh
-COPY scripts/common.sh /workspace/common.sh
+COPY scripts/restore_ubuntu_env.sh scripts/common.sh /workspace/scripts/
 COPY ${INPUT_ARCHIVE} /workspace/archive.tar.gz
-
-# Set working directory
 WORKDIR /workspace
 
-# Create a test script that tests core functionality without network access
-RUN echo '#!/bin/bash' > /workspace/test_restore.sh && \
-    echo 'set -e' >> /workspace/test_restore.sh && \
-    echo 'echo "Starting restore test..."' >> /workspace/test_restore.sh && \
-    echo 'chmod +x /workspace/restore_ubuntu_env.sh' >> /workspace/test_restore.sh && \
-    echo 'echo "Testing user creation..."' >> /workspace/test_restore.sh && \
-    echo 'if ! id -u "${USERNAME}" >/dev/null 2>&1; then' >> /workspace/test_restore.sh && \
-    echo '  echo "Creating user ${USERNAME}..."' >> /workspace/test_restore.sh && \
-    echo '  groupadd -g ${GROUP_ID} ${USERNAME} || true' >> /workspace/test_restore.sh && \
-    echo '  useradd -m -s /bin/bash -u ${USER_ID} -g ${GROUP_ID} ${USERNAME}' >> /workspace/test_restore.sh && \
-    echo '  echo "User ${USERNAME} created successfully"' >> /workspace/test_restore.sh && \
-    echo 'else' >> /workspace/test_restore.sh && \
-    echo '  echo "User ${USERNAME} already exists"' >> /workspace/test_restore.sh && \
-    echo 'fi' >> /workspace/test_restore.sh && \
-    echo 'echo "Testing home directory extraction..."' >> /workspace/test_restore.sh && \
-    echo 'tar -xzvf "/workspace/archive.tar.gz" -C "/home/${USERNAME}/" --strip-components=1' >> /workspace/test_restore.sh && \
-    echo 'chown -R "${USERNAME}:${USERNAME}" "/home/${USERNAME}"' >> /workspace/test_restore.sh && \
-    echo 'echo "Home directory extracted successfully"' >> /workspace/test_restore.sh && \
-    echo 'echo "Setting default shell to zsh..."' >> /workspace/test_restore.sh && \
-    echo 'chsh -s /bin/zsh "${USERNAME}"' >> /workspace/test_restore.sh && \
-    echo 'echo "Default shell set to zsh"' >> /workspace/test_restore.sh && \
-    echo 'echo "Restore completed successfully!"' >> /workspace/test_restore.sh && \
-    echo 'echo "Container will stay alive for verification..."' >> /workspace/test_restore.sh && \
-    echo 'tail -f /dev/null' >> /workspace/test_restore.sh && \
-    chmod +x /workspace/test_restore.sh
-
-# Set default command
-CMD ["/workspace/test_restore.sh"]
+# Run the real restore script (root inside the container == sudo on a host).
+# ASSUME_YES=1 covers the pre-existing-user confirmation path non-interactively.
+# On success print the marker; either way keep the container alive for
+# inspection and the verification step below.
+CMD ["/bin/bash", "-c", "chmod +x scripts/*.sh && ASSUME_YES=1 ARCHIVE_FILE=/workspace/archive.tar.gz ./scripts/restore_ubuntu_env.sh && echo ${SUCCESS_MARKER}; tail -f /dev/null"]
 EOF
 
 if ! docker build --no-cache -f "${DOCKERFILE_RESTORE}" -t "${BASE_IMAGE_NAME}" .; then
@@ -109,66 +84,76 @@ if ! docker build --no-cache -f "${DOCKERFILE_RESTORE}" -t "${BASE_IMAGE_NAME}" 
 fi
 log_success "测试镜像 '${BASE_IMAGE_NAME}' 已创建。"
 
-log_info "步骤 3: 在隔离的容器中运行恢复测试"
-# Start the container in the background
+log_info "步骤 3: 在隔离的容器中运行真实恢复脚本"
 if ! docker run -d --name "${CONTAINER_NAME}" "${BASE_IMAGE_NAME}"; then
     error_exit "启动测试容器失败"
 fi
 
-# Wait a moment for the restore script to complete
-log_info "等待恢复脚本执行完成..."
-sleep 10
-
-# Check container logs for errors
-log_info "检查容器日志..."
-docker logs "${CONTAINER_NAME}"
-
-# Check if the restore script completed successfully
-if ! docker logs "${CONTAINER_NAME}" | grep -q "Restore completed successfully!"; then
-    log_error "恢复脚本执行失败，请查看上面的日志输出"
-    error_exit "恢复脚本执行失败"
-fi
-log_success "恢复脚本测试完成。"
+# Wait for the restore to finish: poll logs for the success marker, fail fast
+# on a script error, and give up after RESTORE_TIMEOUT seconds.
+log_info "等待恢复脚本执行完成 (超时: ${RESTORE_TIMEOUT}s)..."
+elapsed=0
+interval=10
+while ! docker logs "${CONTAINER_NAME}" 2>&1 | grep -q "${SUCCESS_MARKER}"; do
+    if docker logs "${CONTAINER_NAME}" 2>&1 | grep -q "错误:"; then
+        docker logs "${CONTAINER_NAME}" 2>&1 | tail -30
+        error_exit "恢复脚本报告了错误，请查看上面的日志输出"
+    fi
+    if [ -z "$(docker ps -q -f name=${CONTAINER_NAME})" ]; then
+        docker logs "${CONTAINER_NAME}" 2>&1 | tail -30
+        error_exit "测试容器意外退出"
+    fi
+    if [ "${elapsed}" -ge "${RESTORE_TIMEOUT}" ]; then
+        docker logs "${CONTAINER_NAME}" 2>&1 | tail -30
+        error_exit "恢复脚本在 ${RESTORE_TIMEOUT}s 内未完成"
+    fi
+    sleep "${interval}"
+    elapsed=$((elapsed + interval))
+done
+log_success "恢复脚本执行完成 (耗时约 ${elapsed}s)。"
 
 log_info "步骤 4: 验证恢复结果"
-# Check if the user was created successfully
+# User and group were created
 if ! docker exec "${CONTAINER_NAME}" id "${USERNAME}" >/dev/null 2>&1; then
     error_exit "用户 '${USERNAME}' 创建失败"
 fi
 
-# Check if home directory exists
-if ! docker exec "${CONTAINER_NAME}" test -d "/home/${USERNAME}"; then
-    error_exit "用户家目录创建失败"
+# Home directory restored with real content from the bundle
+if ! docker exec "${CONTAINER_NAME}" test -s "/home/${USERNAME}/.zshrc"; then
+    error_exit "家目录恢复失败 (/home/${USERNAME}/.zshrc 缺失或为空)"
 fi
 
-# Check if zsh is installed
-if ! docker exec "${CONTAINER_NAME}" which zsh >/dev/null 2>&1; then
-    error_exit "Zsh 安装失败"
+# mise-managed tools were unpacked
+if ! docker exec "${CONTAINER_NAME}" test -d "/home/${USERNAME}/.local/share/mise"; then
+    error_exit "mise 目录缺失，离线包内容不完整"
 fi
 
-# Check if neovim is installed
-if ! docker exec "${CONTAINER_NAME}" which nvim >/dev/null 2>&1; then
-    error_exit "Neovim 安装失败"
+# Default shell was switched to zsh
+login_shell=$(docker exec "${CONTAINER_NAME}" sh -c "getent passwd ${USERNAME} | cut -d: -f7")
+if [[ "${login_shell}" != *zsh* ]]; then
+    error_exit "默认 Shell 未切换为 zsh (当前: ${login_shell})"
+fi
+
+# Home ownership belongs to the target user
+home_owner=$(docker exec "${CONTAINER_NAME}" stat -c '%U' "/home/${USERNAME}")
+if [ "${home_owner}" != "${USERNAME}" ]; then
+    error_exit "家目录属主错误 (当前: ${home_owner})"
 fi
 
 log_success "✅ 恢复脚本测试成功完成!"
 
 echo
 log_info "--- 测试验证 ---"
-echo "恢复脚本已在隔离的Docker容器中成功运行。"
-echo "测试验证了以下功能:"
+echo "真实的恢复脚本已在隔离的 Ubuntu 24.04 容器中成功运行，验证了:"
+echo "  ✓ OS/glibc 兼容性检查通过"
 echo "  ✓ 用户和组创建"
-echo "  ✓ 家目录恢复"
-echo "  ✓ 权限设置"
-echo "  ✓ Zsh 安装"
-echo "  ✓ Neovim 安装"
+echo "  ✓ APT 依赖安装"
+echo "  ✓ 家目录恢复 (含 mise 工具链)"
+echo "  ✓ 权限归属"
+echo "  ✓ 默认 Shell 切换为 zsh"
 echo ""
 echo "要进入测试容器进行手动验证，请运行:"
 echo -e "  ${SUCCESS}docker exec -it ${CONTAINER_NAME} su - ${USERNAME}${NC}"
 echo ""
-echo "容器将保持运行状态供您验证。"
 echo "验证完成后，请运行以下命令清理环境:"
 echo -e "  ${SUCCESS}make clean${NC}"
-echo ""
-echo "或者手动清理:"
-echo -e "  ${SUCCESS}docker stop ${CONTAINER_NAME} && docker rm ${CONTAINER_NAME} && docker rmi ${BASE_IMAGE_NAME}${NC}"
