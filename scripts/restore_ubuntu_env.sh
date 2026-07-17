@@ -11,6 +11,28 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/common.sh"
 
 # ------------------------------------------------------------------------------
+# Guard: this is the internal core script, not the entry point.
+# The entry point restore.sh execs this with NO args and all config passed via
+# env vars (ARCHIVE_FILE / CURRENT_USER / ...). If it is run directly with
+# flag-style args (e.g. --file X, --current-user), those args are silently
+# ignored and the run later fails with a confusing "指定归档文件路径" error.
+# Catch that here and redirect to the proper usage. (Invoking with only env
+# vars — as tests/test_docker_restore.sh does — passes no args, so this is a
+# no-op there.)
+# ------------------------------------------------------------------------------
+for _arg in "$@"; do
+    case "${_arg}" in
+        -*)
+            error_exit "restore_ubuntu_env.sh 是内部核心脚本，不解析命令行选项 (收到 '${_arg}')。
+请改用入口脚本 (它会解析 --file/--current-user 等选项并按需下载)：
+    sudo ./scripts/restore.sh --file <archive.tar.gz> --current-user
+或直接用环境变量运行本脚本：
+    sudo ARCHIVE_FILE=<archive.tar.gz> CURRENT_USER=1 ./scripts/restore_ubuntu_env.sh"
+            ;;
+    esac
+done
+
+# ------------------------------------------------------------------------------
 # CURRENT_USER mode helpers
 # By default the environment is restored to the packaged user (charles). Set
 # CURRENT_USER=1 to restore into the account that invoked the script instead —
