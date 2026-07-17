@@ -108,6 +108,44 @@ ZSH_EOF
 }
 
 # ==============================================================================
+# Prune orphaned spec files left by in-place framework updates
+# ==============================================================================
+# AstroNvim (and AstroCommunity) import EVERY .lua file under their plugins/
+# directory as a lazy.nvim spec. When `Lazy! sync` updates such a framework in
+# place across a restructure (e.g. AstroNvim v5 -> v6, which dropped
+# vim-illuminate in favour of snacks.words), files removed upstream can linger
+# as untracked orphans — a build cache warmed from an older image is enough to
+# trigger it. Because the whole directory is imported, those stale files load as
+# phantom specs and break the config: e.g. an orphaned vim-illuminate spec calls
+# `nvim-treesitter.parsers.has_parser`, a function removed on nvim-treesitter's
+# `main` branch, which then errors on every buffer read.
+#
+# These frameworks are pure Lua (no compiled artifacts), so dropping untracked
+# .lua files restores a pristine, reproducible checkout. The `-- '*.lua'`
+# pathspec is deliberate: it leaves build outputs (treesitter parser .so files
+# in other repos) and generated helptags untouched.
+prune_framework_orphans() {
+    local lazy_dir="$HOME/.local/share/nvim/lazy"
+    local repo dir count total=0
+    for repo in AstroNvim astrocommunity; do
+        dir="$lazy_dir/$repo"
+        [ -d "$dir/.git" ] || continue
+        # -n (dry run) lists "Would remove ..." lines; -q would suppress them.
+        count=$(git -C "$dir" clean -fdn -- '*.lua' 2>/dev/null | wc -l)
+        if [ "$count" -gt 0 ]; then
+            git -C "$dir" clean -fdq -- '*.lua' 2>/dev/null
+            log_info "Pruned ${count} orphaned spec file(s) from ${repo}"
+            total=$((total + count))
+        fi
+    done
+    if [ "$total" -gt 0 ]; then
+        log_success "Removed ${total} orphaned framework spec file(s) for a clean checkout"
+    else
+        log_info "No orphaned framework spec files (checkout already clean)"
+    fi
+}
+
+# ==============================================================================
 # 2. Neovim / lazy.nvim Plugins
 # ==============================================================================
 install_nvim_plugins() {
@@ -157,6 +195,11 @@ install_nvim_plugins() {
         fi
         ((WARNINGS++))
     fi
+
+    # --- Prune orphaned framework specs before parser/tool passes ---
+    # Must run after the syncs (which may have updated a framework in place) but
+    # before Pass 3/4, so those nvim invocations don't load phantom specs.
+    prune_framework_orphans
 
     # --- Pass 3: TreeSitter parsers (native compilation) ---
     log_info "Pass 3/4: TreeSitter parser installation..."
