@@ -108,40 +108,41 @@ ZSH_EOF
 }
 
 # ==============================================================================
-# Prune orphaned spec files left by in-place framework updates
+# Prune orphaned source files left by in-place plugin updates
 # ==============================================================================
-# AstroNvim (and AstroCommunity) import EVERY .lua file under their plugins/
-# directory as a lazy.nvim spec. When `Lazy! sync` updates such a framework in
-# place across a restructure (e.g. AstroNvim v5 -> v6, which dropped
-# vim-illuminate in favour of snacks.words), files removed upstream can linger
-# as untracked orphans — a build cache warmed from an older image is enough to
-# trigger it. Because the whole directory is imported, those stale files load as
-# phantom specs and break the config: e.g. an orphaned vim-illuminate spec calls
-# `nvim-treesitter.parsers.has_parser`, a function removed on nvim-treesitter's
-# `main` branch, which then errors on every buffer read.
-#
-# These frameworks are pure Lua (no compiled artifacts), so dropping untracked
-# .lua files restores a pristine, reproducible checkout. The `-- '*.lua'`
-# pathspec is deliberate: it leaves build outputs (treesitter parser .so files
-# in other repos) and generated helptags untouched.
-prune_framework_orphans() {
+# The CI build reuses a warmed layer cache and updates plugins in place with
+# `Lazy! sync`. When a plugin restructures between the cached version and the
+# pinned commit (nvim-treesitter / nvim-treesitter-textobjects master->main,
+# AstroNvim v5->v6, mason, catppuccin, ...), files removed upstream linger as
+# untracked orphans. These break nvim in several ways:
+#   - a stale plugin/*.vim or autoload file is auto-sourced against a new API
+#     ("Failed to source ..."),
+#   - a stale lua/<name>.lua shadows the pinned lua/<name>/init.lua so
+#     require() loads the old module,
+#   - AstroNvim/AstroCommunity import their whole plugins/ dir, so an orphaned
+#     spec (e.g. a removed vim-illuminate.lua calling nvim-treesitter's dropped
+#     `has_parser`) loads as a phantom spec and errors on every buffer read.
+# Removing untracked *.lua / *.vim from EVERY plugin repo restores each to its
+# pinned checkout. The extension scope is deliberate: compiled parsers (*.so),
+# treesitter queries (*.scm), and generated helptags are left untouched.
+prune_plugin_orphans() {
     local lazy_dir="$HOME/.local/share/nvim/lazy"
-    local repo dir count total=0
-    for repo in AstroNvim astrocommunity; do
-        dir="$lazy_dir/$repo"
+    [ -d "$lazy_dir" ] || return 0
+    local dir count total=0
+    for dir in "$lazy_dir"/*/; do
         [ -d "$dir/.git" ] || continue
         # -n (dry run) lists "Would remove ..." lines; -q would suppress them.
-        count=$(git -C "$dir" clean -fdn -- '*.lua' 2>/dev/null | wc -l)
+        count=$(git -C "$dir" clean -fdn -- '*.lua' '*.vim' 2>/dev/null | wc -l)
         if [ "$count" -gt 0 ]; then
-            git -C "$dir" clean -fdq -- '*.lua' 2>/dev/null
-            log_info "Pruned ${count} orphaned spec file(s) from ${repo}"
+            git -C "$dir" clean -fdq -- '*.lua' '*.vim' 2>/dev/null
+            log_info "Pruned ${count} orphaned source file(s) from $(basename "$dir")"
             total=$((total + count))
         fi
     done
     if [ "$total" -gt 0 ]; then
-        log_success "Removed ${total} orphaned framework spec file(s) for a clean checkout"
+        log_success "Removed ${total} orphaned plugin source file(s) for a clean checkout"
     else
-        log_info "No orphaned framework spec files (checkout already clean)"
+        log_info "No orphaned plugin source files (checkout already clean)"
     fi
 }
 
@@ -196,10 +197,10 @@ install_nvim_plugins() {
         ((WARNINGS++))
     fi
 
-    # --- Prune orphaned framework specs before parser/tool passes ---
-    # Must run after the syncs (which may have updated a framework in place) but
-    # before Pass 3/4, so those nvim invocations don't load phantom specs.
-    prune_framework_orphans
+    # --- Prune orphaned source files before parser/tool passes ---
+    # Must run after the syncs (which may have updated plugins in place) but
+    # before Pass 3/4, so those nvim invocations don't source/require stale files.
+    prune_plugin_orphans
 
     # --- Remove stale plugin repos left in a warmed build cache ---
     # `Lazy! sync` keeps every plugin still referenced by a spec, but an in-place
