@@ -123,18 +123,30 @@ ZSH_EOF
 #     spec (e.g. a removed vim-illuminate.lua calling nvim-treesitter's dropped
 #     `has_parser`) loads as a phantom spec and errors on every buffer read.
 # Removing untracked *.lua / *.vim from EVERY plugin repo restores each to its
-# pinned checkout. The extension scope is deliberate: compiled parsers (*.so),
-# treesitter queries (*.scm), and generated helptags are left untouched.
+# pinned checkout. `git clean` here respects .gitignore (no -x), so a plugin's
+# intentionally-ignored generated files are preserved. The extension scope is
+# deliberate: it excludes compiled parsers (*.so), generated helptags, AND
+# treesitter queries (*.scm) — nvim-treesitter carries ~1000 untracked but
+# *needed* .scm files, so "untracked" is NOT a safe orphan signal for queries the
+# way it is for .lua/.vim modules. (Residual risk: a plugin that ships a needed,
+# non-ignored, untracked .lua/.vim would lose it — none observed in practice.)
 prune_plugin_orphans() {
     local lazy_dir="$HOME/.local/share/nvim/lazy"
     [ -d "$lazy_dir" ] || return 0
-    local dir count total=0
+    local dir count total=0 removed
     for dir in "$lazy_dir"/*/; do
         [ -d "$dir/.git" ] || continue
-        # -n (dry run) lists "Would remove ..." lines; -q would suppress them.
-        count=$(git -C "$dir" clean -fdn -- '*.lua' '*.vim' 2>/dev/null | wc -l)
+        # Single pass: `git clean -fd` (non-quiet) both removes the untracked
+        # *.lua/*.vim and prints one "Removing <path>" line per entry, which we
+        # count — no separate dry-run. If git itself errors (corrupt/detached
+        # checkout), warn instead of silently skipping the repo.
+        if ! removed=$(git -C "$dir" clean -fd -- '*.lua' '*.vim' 2>/dev/null); then
+            log_warning "git clean failed in $(basename "$dir"); orphans (if any) left in place"
+            ((WARNINGS++))
+            continue
+        fi
+        count=$(printf '%s' "$removed" | grep -c 'Removing ' || true)
         if [ "$count" -gt 0 ]; then
-            git -C "$dir" clean -fdq -- '*.lua' '*.vim' 2>/dev/null
             log_info "Pruned ${count} orphaned source file(s) from $(basename "$dir")"
             total=$((total + count))
         fi
@@ -166,6 +178,10 @@ install_nvim_plugins() {
         return
     fi
 
+    # Tracks whether the settling sync (Pass 2) resolved the full plugin spec.
+    # `Lazy! clean` is gated on it so an incomplete sync can't delete needed plugins.
+    local sync_ok=0
+
     # --- Pass 1: Bootstrap lazy.nvim + install plugins ---
     # On first run, init.lua clones lazy.nvim itself, then require("lazy").setup()
     # registers all plugins. "Lazy! sync" forces a synchronous install/update.
@@ -187,6 +203,7 @@ install_nvim_plugins() {
     log_info "Pass 2/4: Lazy sync (verify)..."
     if timeout "$NVIM_TIMEOUT" nvim --headless "+Lazy! sync" +qa 2>&1; then
         log_success "Pass 2 completed"
+        sync_ok=1
     else
         local rc=$?
         if [ "$rc" -eq 124 ]; then
@@ -210,22 +227,40 @@ install_nvim_plugins() {
     # dependency. Now that the orphaned specs are pruned, `Lazy! clean` drops
     # those unreferenced repos so the packaged bundle ships exactly the resolved
     # plugin set. Local-only (no network); failure is non-fatal.
-    log_info "Cleaning unreferenced plugin repos (Lazy clean)..."
-    if timeout "$NVIM_TIMEOUT" nvim --headless "+Lazy! clean" +qa 2>&1; then
-        log_success "Lazy clean completed"
-    else
-        local rc=$?
-        if [ "$rc" -eq 124 ]; then
-            log_warning "Lazy clean timed out after ${NVIM_TIMEOUT}s"
+    #
+    # Gated on a clean Pass 2: `Lazy! clean` deletes every installed plugin not in
+    # the RESOLVED spec, so if the sync did not settle (timeout/error, meaning the
+    # spec may be incomplete) we skip it rather than risk removing needed plugins.
+    if [ "$sync_ok" -eq 1 ]; then
+        log_info "Cleaning unreferenced plugin repos (Lazy clean)..."
+        if timeout "$NVIM_TIMEOUT" nvim --headless "+Lazy! clean" +qa 2>&1; then
+            log_success "Lazy clean completed"
         else
-            log_warning "Lazy clean had errors (non-fatal)"
+            local rc=$?
+            if [ "$rc" -eq 124 ]; then
+                log_warning "Lazy clean timed out after ${NVIM_TIMEOUT}s"
+            else
+                log_warning "Lazy clean had errors (non-fatal)"
+            fi
+            ((WARNINGS++))
         fi
+    else
+        log_warning "Skipping Lazy clean: prior sync did not settle, resolved spec may be incomplete"
         ((WARNINGS++))
     fi
 
-    # --- Pass 3: TreeSitter parsers (native compilation) ---
+    # --- Pass 3: TreeSitter parsers (install ensure_installed synchronously) ---
+    # nvim-treesitter's `main` branch has NO :TSUpdateSync command (only
+    # TSInstall/TSUpdate, both async). Parser install is the Lua API
+    # `require('nvim-treesitter').install(langs)`, which returns an awaitable we
+    # :wait() on so the build blocks until parsers finish compiling. The language
+    # list is AstroNvim's configured `ensure_installed`; if it can't be resolved
+    # the call is a safe no-op. (The old :TSUpdateSync silently errored on `main`,
+    # so parsers only ever came from the warmed cache — see the prune above.)
     log_info "Pass 3/4: TreeSitter parser installation..."
-    if timeout "$NVIM_TIMEOUT" nvim --headless "+TSUpdateSync" +qa 2>&1; then
+    local ts_wait_ms=$(( (NVIM_TIMEOUT - 20) * 1000 ))
+    local ts_lua="local nts = require('nvim-treesitter'); local ok, core = pcall(require, 'astrocore'); local langs = (ok and vim.tbl_get(core, 'config', 'treesitter', 'ensure_installed')) or {}; if type(langs) == 'table' and #langs > 0 then nts.install(langs):wait(${ts_wait_ms}) end"
+    if timeout "$NVIM_TIMEOUT" nvim --headless -c "lua ${ts_lua}" -c "qa" 2>&1; then
         log_success "TreeSitter parsers installed"
     else
         local rc=$?
