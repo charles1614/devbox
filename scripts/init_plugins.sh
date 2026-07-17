@@ -201,6 +201,27 @@ install_nvim_plugins() {
     # before Pass 3/4, so those nvim invocations don't load phantom specs.
     prune_framework_orphans
 
+    # --- Remove stale plugin repos left in a warmed build cache ---
+    # `Lazy! sync` keeps every plugin still referenced by a spec, but an in-place
+    # framework update (or a config change dropping a dependency) can leave whole
+    # plugin repos installed yet unreferenced — e.g. AstroNvim v5 leftovers
+    # (Comment.nvim, alpha-nvim, cmp-*) or a duplicate mini.nvim pulled in as a
+    # dependency. Now that the orphaned specs are pruned, `Lazy! clean` drops
+    # those unreferenced repos so the packaged bundle ships exactly the resolved
+    # plugin set. Local-only (no network); failure is non-fatal.
+    log_info "Cleaning unreferenced plugin repos (Lazy clean)..."
+    if timeout "$NVIM_TIMEOUT" nvim --headless "+Lazy! clean" +qa 2>&1; then
+        log_success "Lazy clean completed"
+    else
+        local rc=$?
+        if [ "$rc" -eq 124 ]; then
+            log_warning "Lazy clean timed out after ${NVIM_TIMEOUT}s"
+        else
+            log_warning "Lazy clean had errors (non-fatal)"
+        fi
+        ((WARNINGS++))
+    fi
+
     # --- Pass 3: TreeSitter parsers (native compilation) ---
     log_info "Pass 3/4: TreeSitter parser installation..."
     if timeout "$NVIM_TIMEOUT" nvim --headless "+TSUpdateSync" +qa 2>&1; then
