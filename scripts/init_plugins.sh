@@ -133,6 +133,25 @@ ZSH_EOF
 }
 
 # ==============================================================================
+# 1b. CLI cache warmups
+# ==============================================================================
+# Tools whose first run wants the network get their caches baked into the
+# bundle here. tealdeer (extra profile): `tldr <cmd>` on an offline host
+# errors with "Page cache not found. Run 'tldr --update'" until the cache
+# exists under ~/.cache/tealdeer.
+warm_cli_caches() {
+    if command -v tldr &>/dev/null; then
+        log_info "Warming tealdeer (tldr) page cache..."
+        if timeout 120 tldr --update >/dev/null 2>&1; then
+            log_success "tealdeer page cache baked"
+        else
+            log_warning "tldr --update failed; first offline 'tldr' use will error"
+            ((WARNINGS++))
+        fi
+    fi
+}
+
+# ==============================================================================
 # Prune orphaned source files left by in-place plugin updates
 # ==============================================================================
 # The CI build reuses a warmed layer cache and updates plugins in place with
@@ -347,6 +366,13 @@ if #unknown > 0 then
   io.stdout:write("TS_UNKNOWN: " .. table.concat(unknown, " ") .. "\n")
 end
 io.stdout:flush()
+if #todo == 0 then
+  -- Nothing resolvable (registry unavailable?) — fail fast instead of parking
+  -- on the install await until the outer timeout kills the pass.
+  io.stdout:write "TS_EMPTY: no requested parsers available in registry\n"
+  io.stdout:flush()
+  vim.cmd "cquit!"
+end
 local done = false
 ts.install(todo, { summary = true }):await(function() done = true end)
 vim.wait(1500000, function() return done end, 1000)
@@ -436,6 +462,8 @@ main() {
     echo ""
 
     install_zsh_plugins
+    echo ""
+    warm_cli_caches
     echo ""
     install_nvim_plugins
     echo ""
