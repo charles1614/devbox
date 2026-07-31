@@ -140,6 +140,64 @@ if [ "${home_owner}" != "${USERNAME}" ]; then
     error_exit "家目录属主错误 (当前: ${home_owner})"
 fi
 
+log_info "步骤 5: 离线运行时验证 (断网模拟离线主机)"
+# The bundle's promise is "no network fetches at restore time" — so the tools
+# must also RUN clean without network. Cut the container off and exercise the
+# first-prompt paths that have historically phoned home (treesitter parser
+# auto-install, mason ensure_installed, blink prebuilt download, eza flags).
+docker network disconnect bridge "${CONTAINER_NAME}"
+
+# Interactive zsh: `ls /tmp` is the canonical regression (eza --icons flag
+# parsing broke argument-taking ls calls in older dotfiles).
+if ! docker exec "${CONTAINER_NAME}" su - "${USERNAME}" -c \
+        'zsh -ic "ls /tmp >/dev/null && command -v starship >/dev/null && command -v nvim >/dev/null && echo OFFLINE_ZSH_OK"' \
+        2>/dev/null | grep -q "OFFLINE_ZSH_OK"; then
+    error_exit "离线 zsh 启动/ls/starship/nvim 验证失败"
+fi
+log_success "离线 zsh 交互环境正常 (ls / starship / nvim)"
+
+# Neovim runtime probes (extra-style bundles only — mini ships no init.lua).
+if docker exec "${CONTAINER_NAME}" test -f "/home/${USERNAME}/.config/nvim/init.lua"; then
+    docker exec "${CONTAINER_NAME}" bash -c 'cat > /tmp/offline_probe.lua << "LUA"
+vim.defer_fn(function()
+  local out = {}
+  local bufnr = vim.api.nvim_get_current_buf()
+  table.insert(out, "TS_ACTIVE=" .. tostring(vim.treesitter.highlighter.active[bufnr] ~= nil))
+  table.insert(out, vim.fn.execute "messages")
+  local ok, snacks = pcall(require, "snacks")
+  if ok and snacks.notifier then
+    for _, n in ipairs(snacks.notifier.get_history { filter = function() return true end }) do
+      table.insert(out, ("NOTIFY[%s] %s"):format(tostring(n.level), tostring(n.msg)))
+    end
+  end
+  local f = io.open(os.getenv "PROBE_OUT", "w")
+  f:write(table.concat(out, "\n"))
+  f:close()
+  vim.cmd "qa!"
+end, 20000)
+LUA
+echo "print(1)" > /tmp/probe_target.py
+echo "{}"       > /tmp/probe_target.json'
+
+    for probe_file in /tmp/probe_target.py /tmp/probe_target.json "/home/${USERNAME}/.zshrc"; do
+        probe_out="/tmp/probe_$(basename "${probe_file}").txt"
+        docker exec "${CONTAINER_NAME}" su - "${USERNAME}" -c \
+            "PROBE_OUT=${probe_out} timeout 90 zsh -ic 'nvim --headless -c \"luafile /tmp/offline_probe.lua\" ${probe_file}'" \
+            > /dev/null 2>&1 || true
+        if ! docker exec "${CONTAINER_NAME}" grep -q "TS_ACTIVE=true" "${probe_out}"; then
+            docker exec "${CONTAINER_NAME}" cat "${probe_out}" 2>/dev/null | tail -20
+            error_exit "离线 nvim 验证失败: ${probe_file} 无 treesitter 高亮 (解析器未打包?)"
+        fi
+        if docker exec "${CONTAINER_NAME}" grep -qE "Downloading|failed to install|Error during download" "${probe_out}"; then
+            docker exec "${CONTAINER_NAME}" grep -E "Downloading|failed to install|Error during download" "${probe_out}" | head -5
+            error_exit "离线 nvim 验证失败: ${probe_file} 触发了网络下载/安装 (离线主机上会报错)"
+        fi
+    done
+    log_success "离线 nvim 运行时正常 (py/json/zshrc: treesitter 高亮可用, 无网络请求)"
+else
+    log_info "未发现 nvim init.lua (mini 包)，跳过 nvim 离线验证。"
+fi
+
 log_success "✅ 恢复脚本测试成功完成!"
 
 echo
@@ -151,6 +209,8 @@ echo "  ✓ APT 依赖安装"
 echo "  ✓ 家目录恢复 (含 mise 工具链)"
 echo "  ✓ 权限归属"
 echo "  ✓ 默认 Shell 切换为 zsh"
+echo "  ✓ 断网后 zsh 交互环境可用 (ls/starship/nvim)"
+echo "  ✓ 断网后 nvim 无网络请求、treesitter 高亮可用 (extra 包)"
 echo ""
 echo "要进入测试容器进行手动验证，请运行:"
 echo -e "  ${SUCCESS}docker exec -it ${CONTAINER_NAME} su - ${USERNAME}${NC}"

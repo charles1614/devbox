@@ -2,7 +2,10 @@
 
 # ==============================================================================
 # Script: Initialize Plugins
-# Automates zsh (zap) and neovim (lazy.nvim) plugin installation.
+# Automates zsh (zap) and neovim (lazy.nvim) plugin installation, bakes the
+# offline manifests (treesitter parsers, mason packages) into the image, and
+# verifies the result so incomplete bundles fail the build instead of failing
+# lazily on an offline restore target.
 # Designed to run during Docker build (no TTY, no interactive prompts).
 # ==============================================================================
 
@@ -36,7 +39,29 @@ if [ -n "${GITHUB_TOKEN:-}" ]; then
 fi
 
 WARNINGS=0
-NVIM_TIMEOUT=300  # 5 minutes per nvim headless pass
+VERIFY_ERRORS=0
+NVIM_CONFIG_PRESENT=0
+NVIM_TIMEOUT=300   # 5 minutes per plain nvim headless pass
+MASON_TIMEOUT=900  # mason package downloads
+TS_TIMEOUT=1800    # treesitter parser downloads + compilation
+
+# ------------------------------------------------------------------------------
+# Offline-bundle manifests.
+# The packaged home must work with NO network, so everything nvim would try to
+# fetch lazily has to be baked in here and asserted by verify_nvim_bundle().
+#
+# TS_PARSERS: treesitter parsers compiled into the image. Keep in sync with
+# `ensure_installed` in dotfiles dot_config/nvim/lua/plugins/treesitter.lua —
+# that file also sets auto_install=false so an offline host never attempts a
+# parser download at runtime.
+# MASON_PACKAGES: mason.nvim packages. tree-sitter-cli is required by
+# astrocore/nvim-treesitter (main branch); debugpy is required by the dotfiles
+# mason-tool-installer config (missing packages = install-failure notification
+# on every nvim start on an offline host).
+# ------------------------------------------------------------------------------
+TS_PARSERS="${TS_PARSERS:-bash c cpp cmake css csv diff dockerfile git_config git_rebase gitcommit gitignore go gomod gosum gowork html ini javascript jsdoc json json5 lua luadoc make markdown markdown_inline python query regex requirements rust ssh_config toml tsx typescript vim vimdoc xml yaml zsh}"
+MASON_PACKAGES="${MASON_PACKAGES:-tree-sitter-cli debugpy}"
+export TS_PARSERS MASON_PACKAGES
 
 # ==============================================================================
 # 1. Zsh / Zap Plugins
@@ -177,6 +202,7 @@ install_nvim_plugins() {
         log_info "No nvim init.lua found (mini profile?), skipping lazy.nvim setup"
         return
     fi
+    NVIM_CONFIG_PRESENT=1
 
     # Tracks whether the settling sync (Pass 2) resolved the full plugin spec.
     # `Lazy! clean` is gated on it so an incomplete sync can't delete needed plugins.
@@ -186,7 +212,7 @@ install_nvim_plugins() {
     # On first run, init.lua clones lazy.nvim itself, then require("lazy").setup()
     # registers all plugins. "Lazy! sync" forces a synchronous install/update.
     # Each pass is wrapped with `timeout` to prevent CI from hanging forever.
-    log_info "Pass 1/4: Lazy sync (bootstrap + install)..."
+    log_info "Pass 1/5: Lazy sync (bootstrap + install)..."
     if timeout "$NVIM_TIMEOUT" nvim --headless "+Lazy! sync" +qa 2>&1; then
         log_success "Pass 1 completed"
     else
@@ -200,7 +226,7 @@ install_nvim_plugins() {
     fi
 
     # --- Pass 2: Second sync to settle any first-run race conditions ---
-    log_info "Pass 2/4: Lazy sync (verify)..."
+    log_info "Pass 2/5: Lazy sync (verify)..."
     if timeout "$NVIM_TIMEOUT" nvim --headless "+Lazy! sync" +qa 2>&1; then
         log_success "Pass 2 completed"
         sync_ok=1
@@ -249,39 +275,104 @@ install_nvim_plugins() {
         ((WARNINGS++))
     fi
 
-    # --- Pass 3: TreeSitter parsers (install ensure_installed synchronously) ---
-    # nvim-treesitter's `main` branch has NO :TSUpdateSync command (only
-    # TSInstall/TSUpdate, both async). Parser install is the Lua API
-    # `require('nvim-treesitter').install(langs)`, which returns an awaitable we
-    # :wait() on so the build blocks until parsers finish compiling. The language
-    # list is AstroNvim's configured `ensure_installed`; if it can't be resolved
-    # the call is a safe no-op. (The old :TSUpdateSync silently errored on `main`,
-    # so parsers only ever came from the warmed cache — see the prune above.)
-    log_info "Pass 3/4: TreeSitter parser installation..."
-    local ts_wait_ms=$(( (NVIM_TIMEOUT - 20) * 1000 ))
-    local ts_lua="local nts = require('nvim-treesitter'); local ok, core = pcall(require, 'astrocore'); local langs = (ok and vim.tbl_get(core, 'config', 'treesitter', 'ensure_installed')) or {}; if type(langs) == 'table' and #langs > 0 then nts.install(langs):wait(${ts_wait_ms}) end"
-    if timeout "$NVIM_TIMEOUT" nvim --headless -c "lua ${ts_lua}" -c "qa" 2>&1; then
-        log_success "TreeSitter parsers installed"
+    # --- Pass 3: Mason packages (synchronous, via mason-registry API) ---
+    # MasonToolsInstallSync proved unreliable here: its installs run async and
+    # `+qa` can kill them mid-flight, shipping bundles without debugpy. This
+    # installs each package directly and waits for its install handle to close.
+    log_info "Pass 3/5: Mason packages (${MASON_PACKAGES})..."
+    cat > /tmp/devbox_mason_ensure.lua <<'LUA'
+local ok, mr = pcall(require, "mason-registry")
+if not ok then
+  io.stdout:write "MASON_SKIP: mason-registry not available\n"
+  io.stdout:flush()
+  vim.cmd "qa!"
+end
+pcall(function() mr.refresh() end)
+local failed = false
+for name in (os.getenv "MASON_PACKAGES" or ""):gmatch "%S+" do
+  local okp, p = pcall(mr.get_package, name)
+  if not okp then
+    io.stdout:write("MASON_UNKNOWN: " .. name .. "\n")
+    failed = true
+  elseif p:is_installed() then
+    io.stdout:write("MASON_PRESENT: " .. name .. "\n")
+  else
+    io.stdout:write("MASON_INSTALLING: " .. name .. "\n")
+    io.stdout:flush()
+    local hok, handle = pcall(function() return p:install() end)
+    if hok and handle and handle.is_closed then
+      vim.wait(600000, function() return handle:is_closed() end, 1000)
+    else
+      vim.wait(600000, function() return p:is_installed() end, 2000)
+    end
+    io.stdout:write((p:is_installed() and "MASON_OK: " or "MASON_FAIL: ") .. name .. "\n")
+    failed = failed or not p:is_installed()
+  end
+  io.stdout:flush()
+end
+vim.cmd(failed and "cquit!" or "qa!")
+LUA
+    if timeout "$MASON_TIMEOUT" nvim --headless "+luafile /tmp/devbox_mason_ensure.lua" 2>&1; then
+        log_success "Mason packages ensured"
     else
         local rc=$?
         if [ "$rc" -eq 124 ]; then
-            log_warning "Pass 3 timed out after ${NVIM_TIMEOUT}s"
+            log_warning "Pass 3 timed out after ${MASON_TIMEOUT}s"
         else
-            log_warning "TreeSitter installation had errors"
+            log_warning "Mason package installation had errors"
         fi
         ((WARNINGS++))
     fi
 
-    # --- Pass 4: Mason tools ---
-    log_info "Pass 4/4: Mason tools..."
-    if timeout "$NVIM_TIMEOUT" nvim --headless -c "MasonToolsInstallSync" -c "qa" 2>&1; then
-        log_success "Mason tools installed"
+    # --- Pass 4: TreeSitter parsers (synchronous, nvim-treesitter `main`) ---
+    # `TSUpdateSync` no longer exists on the `main` branch that AstroNvim v6
+    # pins, so the old pass silently installed nothing beyond AstroNvim's
+    # startup defaults. Install the manifest explicitly and block on the async
+    # task; needs the tree-sitter CLI, hence Pass 3 running first.
+    log_info "Pass 4/5: TreeSitter parsers (${TS_PARSERS})..."
+    cat > /tmp/devbox_ts_install.lua <<'LUA'
+local ok, ts = pcall(require, "nvim-treesitter")
+if not ok then
+  io.stdout:write "TS_SKIP: nvim-treesitter not available\n"
+  io.stdout:flush()
+  vim.cmd "qa!"
+end
+local todo, unknown = {}, {}
+local available = {}
+for _, lang in ipairs(ts.get_available()) do available[lang] = true end
+for lang in (os.getenv "TS_PARSERS" or ""):gmatch "%S+" do
+  table.insert(available[lang] and todo or unknown, lang)
+end
+if #unknown > 0 then
+  io.stdout:write("TS_UNKNOWN: " .. table.concat(unknown, " ") .. "\n")
+end
+io.stdout:flush()
+local done = false
+ts.install(todo, { summary = true }):await(function() done = true end)
+vim.wait(1500000, function() return done end, 1000)
+local installed = {}
+for _, lang in ipairs(ts.get_installed "parsers") do installed[lang] = true end
+local missing = {}
+for _, lang in ipairs(todo) do
+  if not installed[lang] then table.insert(missing, lang) end
+end
+if #missing > 0 then
+  io.stdout:write("TS_MISSING: " .. table.concat(missing, " ") .. "\n")
+  io.stdout:flush()
+  vim.cmd "cquit!"
+end
+io.stdout:write("TS_OK: all requested parsers installed\n")
+io.stdout:flush()
+vim.cmd "qa!"
+LUA
+    if timeout "$TS_TIMEOUT" nvim --headless "+luafile /tmp/devbox_ts_install.lua" 2>&1; then
+        log_success "TreeSitter parsers installed"
     else
         local rc=$?
         if [ "$rc" -eq 124 ]; then
-            log_warning "Pass 4 timed out after ${NVIM_TIMEOUT}s"
+            log_warning "Pass 4 timed out after ${TS_TIMEOUT}s"
         else
-            log_warning "Mason tools installation had errors"
+            log_warning "TreeSitter installation had errors"
         fi
         ((WARNINGS++))
     fi
@@ -299,6 +390,45 @@ install_nvim_plugins() {
 }
 
 # ==============================================================================
+# 3. Offline-bundle verification
+# ==============================================================================
+# The whole point of the image is offline restore, so a bundle missing baked
+# artifacts is a build failure, not a warning: every missing piece here turns
+# into a network fetch (and an error notification) on the offline target.
+verify_nvim_bundle() {
+    [[ "$NVIM_CONFIG_PRESENT" -eq 1 ]] || return 0
+    log_info "Pass 5/5: verifying offline bundle completeness..."
+
+    local parser_dir="$HOME/.local/share/nvim/site/parser"
+    local mason_pkg_dir="$HOME/.local/share/nvim/mason/packages"
+    local lang pkg
+    for lang in ${TS_PARSERS}; do
+        if [[ ! -f "${parser_dir}/${lang}.so" ]]; then
+            log_error "verify: treesitter parser missing: ${lang}.so"
+            ((VERIFY_ERRORS++))
+        fi
+    done
+    for pkg in ${MASON_PACKAGES}; do
+        if [[ ! -d "${mason_pkg_dir}/${pkg}" ]]; then
+            log_error "verify: mason package missing: ${pkg}"
+            ((VERIFY_ERRORS++))
+        fi
+    done
+    if [[ ! -x "$HOME/.local/share/nvim/mason/bin/tree-sitter" ]]; then
+        log_error "verify: tree-sitter CLI missing from mason bin"
+        ((VERIFY_ERRORS++))
+    fi
+    if [[ ! -d "$HOME/.local/share/nvim/lazy/lazy.nvim" ]]; then
+        log_error "verify: lazy.nvim missing (bootstrap would need network)"
+        ((VERIFY_ERRORS++))
+    fi
+
+    if [[ "$VERIFY_ERRORS" -eq 0 ]]; then
+        log_success "Offline bundle verification passed"
+    fi
+}
+
+# ==============================================================================
 # Main
 # ==============================================================================
 main() {
@@ -308,6 +438,8 @@ main() {
     install_zsh_plugins
     echo ""
     install_nvim_plugins
+    echo ""
+    verify_nvim_bundle
 
     echo ""
     if [[ "$WARNINGS" -gt 0 ]]; then
@@ -316,9 +448,17 @@ main() {
         log_success "All plugins installed successfully!"
     fi
 
-    # Always exit 0 — plugin issues should not break the Docker build.
-    # The image is still usable; any missing plugin will auto-install on
-    # first interactive use.
+    # Transient pass warnings don't break the build, but a bundle that FAILED
+    # verification would fetch (and fail) at runtime on offline targets — that
+    # is a build failure. INIT_PLUGINS_STRICT=0 restores the old soft behavior.
+    if [[ "$VERIFY_ERRORS" -gt 0 ]]; then
+        if [[ "${INIT_PLUGINS_STRICT:-1}" = "0" ]]; then
+            log_warning "Offline bundle verification failed (${VERIFY_ERRORS} missing artifact(s)); continuing because INIT_PLUGINS_STRICT=0."
+        else
+            log_error "Offline bundle verification failed: ${VERIFY_ERRORS} missing artifact(s). Failing the build (set INIT_PLUGINS_STRICT=0 to bypass)."
+            exit 1
+        fi
+    fi
     exit 0
 }
 
