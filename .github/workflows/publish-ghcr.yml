@@ -197,6 +197,17 @@ jobs:
           docker stop "$CONTAINER"
           docker rm "$CONTAINER"
 
+          # GitHub Releases reject assets >= 2 GiB. Fail here — 10 minutes in,
+          # with the size named — instead of after the whole matrix at the
+          # release step, where a rejected upload leaves a partial release.
+          LIMIT=$((2 * 1024 * 1024 * 1024))
+          SIZE=$(stat -c %s "$ARCHIVE")
+          echo "Archive size: $SIZE bytes (limit ${LIMIT})"
+          if [ "$SIZE" -ge "$LIMIT" ]; then
+            echo "::error::${ARCHIVE} is $((SIZE / 1024 / 1024)) MiB — at or above GitHub's 2048 MiB release-asset limit. Prune more from the image (see prune_build_caches in scripts/init_plugins.sh) or split the archive."
+            exit 1
+          fi
+
       - name: Upload archive
         uses: actions/upload-artifact@v4
         with:
