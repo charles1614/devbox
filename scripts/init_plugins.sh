@@ -152,6 +152,71 @@ warm_cli_caches() {
 }
 
 # ==============================================================================
+# 1c. Build-cache pruning (keeps the packaged archive under GitHub's asset cap)
+# ==============================================================================
+# GitHub Releases reject any asset >= 2 GiB, and the extra bundle crossed it.
+# These directories are download/build caches: they are re-creatable, are never
+# read to *run* an installed tool, and (being already-compressed archives) cost
+# nearly their full size in the .tar.gz. Removing them costs an offline user
+# nothing at runtime — a later `cargo install` / `npm install` would re-fetch,
+# which needs network regardless.
+#
+# Rust's offline HTML docs (`rustup doc`) are the one judgement call: ~700 MiB
+# of the toolchain. They are dropped by default to keep the bundle shippable;
+# set PRUNE_RUST_DOCS=0 to keep them (bundle may then exceed the 2 GiB cap).
+prune_build_caches() {
+    log_info "Pruning build caches from the packaged home..."
+
+    local -a targets=(
+        "$HOME/.cargo/registry"          # crate sources+.crate cache from cargo install
+        "$HOME/.cargo/.global-cache"
+        "$HOME/.npm/_cacache"            # npm content-addressable download cache
+        "$HOME/.npm/_logs"
+        "$HOME/.cache/mise"              # mise HTTP/download cache
+        "$HOME/.rustup/downloads"
+        "$HOME/.rustup/tmp"
+    )
+    if [[ "${PRUNE_RUST_DOCS:-1}" != "0" ]]; then
+        local doc_dir
+        for doc_dir in "$HOME"/.rustup/toolchains/*/share/doc; do
+            [[ -d "$doc_dir" ]] && targets+=("$doc_dir")
+        done
+    fi
+
+    # TinyTeX ships per-architecture binaries and the mise plugin does not always
+    # pick the host's: on arm64 only bin/x86_64-linux is installed, so every TeX
+    # binary is unrunnable there ("cannot execute binary file") and the whole
+    # ~390 MiB install is dead weight. Drop it only on a genuine arch mismatch —
+    # a bundle whose TeX binaries DO match the host keeps working LaTeX.
+    local tex_root expected_bin
+    case "$(uname -m)" in
+        x86_64)        expected_bin="x86_64-linux" ;;
+        aarch64|arm64) expected_bin="aarch64-linux" ;;
+        *)             expected_bin="" ;;
+    esac
+    for tex_root in "$HOME"/.local/share/mise/installs/tinytex/*/; do
+        [[ -d "${tex_root}bin" ]] || continue
+        if [[ -n "$expected_bin" && ! -d "${tex_root}bin/${expected_bin}" ]]; then
+            log_warning "TinyTeX at ${tex_root} has no ${expected_bin} binaries (found: $(ls "${tex_root}bin" 2>/dev/null | tr '\n' ' ')); it cannot run on $(uname -m) — pruning."
+            targets+=("${tex_root%/}")
+        fi
+    done
+
+    local t freed=0 sz
+    for t in "${targets[@]}"; do
+        [[ -e "$t" ]] || continue
+        sz=$(du -sk "$t" 2>/dev/null | cut -f1)
+        if rm -rf "$t"; then
+            freed=$((freed + ${sz:-0}))
+        else
+            log_warning "Failed to prune ${t}"
+            ((WARNINGS++))
+        fi
+    done
+    log_success "Build caches pruned: $((freed / 1024)) MiB freed from the bundle"
+}
+
+# ==============================================================================
 # Prune orphaned source files left by in-place plugin updates
 # ==============================================================================
 # The CI build reuses a warmed layer cache and updates plugins in place with
@@ -466,6 +531,9 @@ main() {
     warm_cli_caches
     echo ""
     install_nvim_plugins
+    echo ""
+    # After every installer has run, so nothing repopulates the caches.
+    prune_build_caches
     echo ""
     verify_nvim_bundle
 
