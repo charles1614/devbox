@@ -133,6 +133,57 @@ ZSH_EOF
 }
 
 # ==============================================================================
+# Prune orphaned source files left by in-place plugin updates
+# ==============================================================================
+# The CI build reuses a warmed layer cache and updates plugins in place with
+# `Lazy! sync`. When a plugin restructures between the cached version and the
+# pinned commit (nvim-treesitter / nvim-treesitter-textobjects master->main,
+# AstroNvim v5->v6, mason, catppuccin, ...), files removed upstream linger as
+# untracked orphans. These break nvim in several ways:
+#   - a stale plugin/*.vim or autoload file is auto-sourced against a new API
+#     ("Failed to source ..."),
+#   - a stale lua/<name>.lua shadows the pinned lua/<name>/init.lua so
+#     require() loads the old module,
+#   - AstroNvim/AstroCommunity import their whole plugins/ dir, so an orphaned
+#     spec (e.g. a removed vim-illuminate.lua calling nvim-treesitter's dropped
+#     `has_parser`) loads as a phantom spec and errors on every buffer read.
+# Removing untracked *.lua / *.vim from EVERY plugin repo restores each to its
+# pinned checkout. `git clean` here respects .gitignore (no -x), so a plugin's
+# intentionally-ignored generated files are preserved. The extension scope is
+# deliberate: it excludes compiled parsers (*.so), generated helptags, AND
+# treesitter queries (*.scm) — nvim-treesitter carries ~1000 untracked but
+# *needed* .scm files, so "untracked" is NOT a safe orphan signal for queries the
+# way it is for .lua/.vim modules. (Residual risk: a plugin that ships a needed,
+# non-ignored, untracked .lua/.vim would lose it — none observed in practice.)
+prune_plugin_orphans() {
+    local lazy_dir="$HOME/.local/share/nvim/lazy"
+    [ -d "$lazy_dir" ] || return 0
+    local dir count total=0 removed
+    for dir in "$lazy_dir"/*/; do
+        [ -d "$dir/.git" ] || continue
+        # Single pass: `git clean -fd` (non-quiet) both removes the untracked
+        # *.lua/*.vim and prints one "Removing <path>" line per entry, which we
+        # count — no separate dry-run. If git itself errors (corrupt/detached
+        # checkout), warn instead of silently skipping the repo.
+        if ! removed=$(git -C "$dir" clean -fd -- '*.lua' '*.vim' 2>/dev/null); then
+            log_warning "git clean failed in $(basename "$dir"); orphans (if any) left in place"
+            ((WARNINGS++))
+            continue
+        fi
+        count=$(printf '%s' "$removed" | grep -c 'Removing ' || true)
+        if [ "$count" -gt 0 ]; then
+            log_info "Pruned ${count} orphaned source file(s) from $(basename "$dir")"
+            total=$((total + count))
+        fi
+    done
+    if [ "$total" -gt 0 ]; then
+        log_success "Removed ${total} orphaned plugin source file(s) for a clean checkout"
+    else
+        log_info "No orphaned plugin source files (checkout already clean)"
+    fi
+}
+
+# ==============================================================================
 # 2. Neovim / lazy.nvim Plugins
 # ==============================================================================
 install_nvim_plugins() {
@@ -152,6 +203,10 @@ install_nvim_plugins() {
         return
     fi
     NVIM_CONFIG_PRESENT=1
+
+    # Tracks whether the settling sync (Pass 2) resolved the full plugin spec.
+    # `Lazy! clean` is gated on it so an incomplete sync can't delete needed plugins.
+    local sync_ok=0
 
     # --- Pass 1: Bootstrap lazy.nvim + install plugins ---
     # On first run, init.lua clones lazy.nvim itself, then require("lazy").setup()
@@ -174,6 +229,7 @@ install_nvim_plugins() {
     log_info "Pass 2/5: Lazy sync (verify)..."
     if timeout "$NVIM_TIMEOUT" nvim --headless "+Lazy! sync" +qa 2>&1; then
         log_success "Pass 2 completed"
+        sync_ok=1
     else
         local rc=$?
         if [ "$rc" -eq 124 ]; then
@@ -181,6 +237,41 @@ install_nvim_plugins() {
         else
             log_warning "Pass 2 had errors"
         fi
+        ((WARNINGS++))
+    fi
+
+    # --- Prune orphaned source files before parser/tool passes ---
+    # Must run after the syncs (which may have updated plugins in place) but
+    # before Pass 3/4, so those nvim invocations don't source/require stale files.
+    prune_plugin_orphans
+
+    # --- Remove stale plugin repos left in a warmed build cache ---
+    # `Lazy! sync` keeps every plugin still referenced by a spec, but an in-place
+    # framework update (or a config change dropping a dependency) can leave whole
+    # plugin repos installed yet unreferenced — e.g. AstroNvim v5 leftovers
+    # (Comment.nvim, alpha-nvim, cmp-*) or a duplicate mini.nvim pulled in as a
+    # dependency. Now that the orphaned specs are pruned, `Lazy! clean` drops
+    # those unreferenced repos so the packaged bundle ships exactly the resolved
+    # plugin set. Local-only (no network); failure is non-fatal.
+    #
+    # Gated on a clean Pass 2: `Lazy! clean` deletes every installed plugin not in
+    # the RESOLVED spec, so if the sync did not settle (timeout/error, meaning the
+    # spec may be incomplete) we skip it rather than risk removing needed plugins.
+    if [ "$sync_ok" -eq 1 ]; then
+        log_info "Cleaning unreferenced plugin repos (Lazy clean)..."
+        if timeout "$NVIM_TIMEOUT" nvim --headless "+Lazy! clean" +qa 2>&1; then
+            log_success "Lazy clean completed"
+        else
+            local rc=$?
+            if [ "$rc" -eq 124 ]; then
+                log_warning "Lazy clean timed out after ${NVIM_TIMEOUT}s"
+            else
+                log_warning "Lazy clean had errors (non-fatal)"
+            fi
+            ((WARNINGS++))
+        fi
+    else
+        log_warning "Skipping Lazy clean: prior sync did not settle, resolved spec may be incomplete"
         ((WARNINGS++))
     fi
 
