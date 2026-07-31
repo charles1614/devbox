@@ -189,7 +189,10 @@ Download details: pin a release with `--version <tag>`; force a fresh download w
 `--force-download`. The downloaded archive is kept in the working directory, so a
 re-run skips the download. If APT can't reach the network during restore, the home
 directory is restored anyway (the bundle's tools are self-contained) — the missing
-system packages are listed for you to install later.
+system packages are listed for you to install later. One of those packages is
+`zsh` itself: on a host where it can't be installed, the login shell is left
+unchanged (instead of pointing at a missing `/bin/zsh` and locking the account
+out) — install zsh later and run `chsh -s "$(command -v zsh)" <user>`.
 
 > The restore refuses hosts older than the build (Ubuntu < 24.04 / glibc < 2.39),
 > because mise-managed binaries would fail with `GLIBC_x.yz not found`. Force past

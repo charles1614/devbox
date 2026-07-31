@@ -170,7 +170,14 @@ if ! chown -R "${USERNAME}:${USERNAME}" "/home/${USERNAME}"; then
 fi
 
 log_info "正在设置用户 '${USERNAME}' 的默认 Shell 为 Zsh..."
-if ! chsh -s /bin/zsh "${USERNAME}"; then
+# Root's chsh does NOT validate that the target shell exists, so on an offline
+# host where the zsh APT install failed we'd point the account at a missing
+# /bin/zsh and make it un-loginable (su/ssh: "failed to execute /bin/zsh").
+ZSH_BIN="$(command -v zsh || true)"
+if [ -z "${ZSH_BIN}" ]; then
+    log_warning "未找到 zsh (离线环境下 APT 安装失败?)。保持当前登录 Shell 不变，避免账户无法登录。"
+    log_warning "联网安装后再切换: apt-get install -y zsh && chsh -s \"\$(command -v zsh)\" ${USERNAME}"
+elif ! chsh -s "${ZSH_BIN}" "${USERNAME}"; then
     log_warning "设置默认 Shell 失败，请手动检查 Zsh 是否安装并配置正确"
 fi
 log_success "权限修复和默认Shell设置完成。"
